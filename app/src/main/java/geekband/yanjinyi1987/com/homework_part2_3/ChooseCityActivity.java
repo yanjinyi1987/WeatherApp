@@ -3,8 +3,6 @@ package geekband.yanjinyi1987.com.homework_part2_3;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.database.Cursor;
-import android.database.sqlite.SQLiteDatabase;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
@@ -46,7 +44,7 @@ public class ChooseCityActivity extends AppCompatActivity {
                     case WRITE_FINISHED:
                         Log.i("ChoosedCityActivity","start MainActivity");
                         Intent intent = new Intent(ChooseCityActivity.this,MainActivity.class);
-                        intent.putExtra("Position",((CityList)msg.obj).getId());
+                        intent.putExtra("Position",((CityInfo)msg.obj).getId());
                         startActivityForResult(intent,0); //uiying OnCreate
                         finish();
                         break;
@@ -94,17 +92,18 @@ public class ChooseCityActivity extends AppCompatActivity {
     }
 //ExpandableListView
     private void initListViews(final Map<String, ProvinceList> cityLists) {
-        final List<City> provinceList = new ArrayList<>();
+        final List<CityWithInfo> provinceList = new ArrayList<>();
         for (String prov_name:cityLists.keySet()
              ) {
-            provinceList.add(new City(prov_name,R.drawable.acs));
+            CityInfo cityInfo = new CityInfo(prov_name);
+            provinceList.add(new CityWithInfo(cityInfo,R.drawable.acs));
 
         }
 
-        Collections.sort(provinceList, new Comparator<City>() {
+        Collections.sort(provinceList, new Comparator<CityWithInfo>() {
             @Override
-            public int compare(City lhs, City rhs) {
-               return lhs.getName().compareTo(rhs.getName());
+            public int compare(CityWithInfo lhs, CityWithInfo rhs) {
+               return lhs.getName().getCity().compareTo(rhs.getName().getCity());
             }
         });
 
@@ -128,7 +127,7 @@ public class ChooseCityActivity extends AppCompatActivity {
             @Override
             public boolean onChildClick(ExpandableListView parent, View v, int groupPosition, int childPosition, long id) {
                 //pass data to ManageCityActivity
-                CityList choosedCity = cityLists.get(provinceList.get(groupPosition).getName()).getCities().get(childPosition);
+                CityInfo choosedCity = cityLists.get(provinceList.get(groupPosition).getName()).getCities().get(childPosition);
                 writeChoosedCitytoDatabase(choosedCity);
                 setDatatoSharedPreferences(false,MainActivity.GLOBAL_SETTINGS,MainActivity.IS_CITY_WEATHER_CACHED);
                 return false;
@@ -144,7 +143,7 @@ public class ChooseCityActivity extends AppCompatActivity {
         editor.apply();
     }
 
-    private void writeChoosedCitytoDatabase(final CityList city) {
+    private void writeChoosedCitytoDatabase(final CityInfo city) {
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -172,34 +171,34 @@ public class ChooseCityActivity extends AppCompatActivity {
 }
 
 
-class City {
-    private String name;
-    private int imageId;
-
-    public City(String name,int imageId) {
-        this.name=name;
-        this.imageId=imageId;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public int getImageId() {
-        return imageId;
-    }
-}
+//class CityWithInfo {
+//    private String name;
+//    private int imageId;
+//
+//    public CityWithInfo(String name, int imageId) {
+//        this.name=name;
+//        this.imageId=imageId;
+//    }
+//
+//    public String getName() {
+//        return name;
+//    }
+//
+//    public int getImageId() {
+//        return imageId;
+//    }
+//}
 
 
 class CityAdapter_Expand extends BaseExpandableListAdapter {
-    List<City> groupList;
+    List<CityWithInfo> groupList;
     Map<String,ProvinceList> childMap;
     private int parentResourceId,childResourceId;
     Context mContext;
 
 
-    public CityAdapter_Expand(Context context,int parentLayoutResourceId,int childLayoutResourceId
-            ,List<City> provinces,Map<String,ProvinceList> citiesPerProvince) {
+    public CityAdapter_Expand(Context context, int parentLayoutResourceId, int childLayoutResourceId
+            , List<CityWithInfo> provinces, Map<String,ProvinceList> citiesPerProvince) {
         parentResourceId = parentLayoutResourceId;
         childResourceId = childLayoutResourceId;
         groupList = provinces;
@@ -249,7 +248,7 @@ class CityAdapter_Expand extends BaseExpandableListAdapter {
 
     @Override
     public View getGroupView(int groupPosition, boolean isExpanded, View convertView, ViewGroup parent) {
-        City city = groupList.get(groupPosition);
+        CityWithInfo cityWithInfo = groupList.get(groupPosition);
         View view;
         ParentViewHolder parentViewHolder;
         if(convertView==null) {
@@ -265,8 +264,8 @@ class CityAdapter_Expand extends BaseExpandableListAdapter {
         }
 
 
-        parentViewHolder.arrowImage.setImageResource(city.getImageId());
-        parentViewHolder.provinceName.setText(city.getName());
+        parentViewHolder.arrowImage.setImageResource(cityWithInfo.getImageId());
+        parentViewHolder.provinceName.setText(cityWithInfo.getName().getCity());
 
         return view;
     }

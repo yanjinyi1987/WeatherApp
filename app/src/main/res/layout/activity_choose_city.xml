@@ -14,7 +14,7 @@
         android:id="@+id/choose_city_text"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Please choose city!"
+        android:text="Please choose cityWithInfo!"
         android:textSize="20sp"/>
 
     <ExpandableListView

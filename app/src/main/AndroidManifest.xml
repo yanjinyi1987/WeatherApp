@@ -21,7 +21,10 @@
         <activity android:name=".ManageCityActivity"
             android:launchMode="singleTask"/>
         <activity android:name=".ChooseCityActivity"
-            android:launchMode="singleTask"></activity>
+            android:launchMode="singleTask"/>
+
+        <service android:name=".service.WeatherService"
+            android:process=":weatherService"/>
     </application>
 
 </manifest>

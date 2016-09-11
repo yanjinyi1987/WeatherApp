@@ -4,7 +4,6 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.database.sqlite.SQLiteDatabase;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
@@ -20,7 +19,6 @@ import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -29,14 +27,14 @@ public class ManageCityActivity extends AppCompatActivity {
 
     private Button mChooseCityButton;
     private ListView mChoosedCities;
-    List<CityList> cityLists;
+    List<CityInfo> cityInfos;
     private Handler mHandler = new Handler() {
         @Override
         public void handleMessage(Message msg) {
             switch(msg.what) {
                 case 1:
-                    cityLists = (List<CityList>) msg.obj;
-                    initListViews(cityLists);
+                    cityInfos = (List<CityInfo>) msg.obj;
+                    initListViews(cityInfos);
                     break;
                 default:
                     break;
@@ -88,6 +86,12 @@ public class ManageCityActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onStop() {
+        super.onStop();
+        Log.i("ManagerCityActivity","onStop");
+    }
+
+    @Override
     protected void onDestroy() {
         unregisterReceiver(broadcastReceiver);
         super.onDestroy();
@@ -130,24 +134,14 @@ public class ManageCityActivity extends AppCompatActivity {
 
     }
 
-    private  void initListViews(List<CityList> cities) {
+    private  void initListViews(List<CityInfo> cities) {
         choosedCityAdapter.clear();
-        for (CityList city: cities
+        for (CityInfo city: cities
              ) {
             cityWithInfoList.add(new CityWithInfo(city,-1));
         }
         choosedCityAdapter.notifyDataSetChanged();
         //long press to show delete signature and manipulate the database
-//        mChoosedCities.setOnItemClickListener(new AdapterView.OnItemClickListener() {
-//            @Override
-//            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-//                if(cityWithInfoList.get(position).getImageId()!=-1) {
-//                    cityWithInfoList.remove(position);
-//                    //delete the data in the database
-//                    choosedCityAdapter.notifyDataSetChanged();
-//                }
-//            }
-//        });
 
         mChoosedCities.setOnItemLongClickListener(new AdapterView.OnItemLongClickListener() {
             @Override
@@ -170,16 +164,16 @@ public class ManageCityActivity extends AppCompatActivity {
         new Thread(new Runnable() {
             @Override
             public void run() {
-                List<CityList> cityLists;
+                List<CityInfo> cityInfos;
 
                 Looper.prepare();
                 Message msg = new Message();
                 CityListOperations cityListOperations = new CityListOperations(ManageCityActivity.this);
                 //SQLiteDatabase cityListDatabase = cityListOperations.getWritableDatabase(); //database is locked, need wait()
-                cityLists = cityListOperations.getChoosedCities();
+                cityInfos = cityListOperations.getChoosedCities();
 
                 msg.what = 1;
-                msg.obj = cityLists;
+                msg.obj = cityInfos;
 
                 mHandler.sendMessage(msg);
 
@@ -268,7 +262,7 @@ class ChoosedCityAdapter extends ArrayAdapter<CityWithInfo> {
                 }
 //                Message msg = new Message();
 //                msg.what = 1;
-//                msg.obj = cityLists;
+//                msg.obj = cityInfos;
 //                mHandler.sendMessage(msg);
 
                 Looper.loop();
@@ -278,15 +272,15 @@ class ChoosedCityAdapter extends ArrayAdapter<CityWithInfo> {
 }
 
 class CityWithInfo {
-    private CityList city;
+    private CityInfo city;
     private int imageId;
 
-    public CityWithInfo(CityList city,int imageId) {
+    public CityWithInfo(CityInfo city, int imageId) {
         this.city=city;
         this.imageId=imageId;
     }
 
-    public CityList getName() {
+    public CityInfo getName() {
         return city;
     }
 
