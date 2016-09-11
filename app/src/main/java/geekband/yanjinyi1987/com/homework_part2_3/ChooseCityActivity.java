@@ -60,6 +60,16 @@ public class ChooseCityActivity extends AppCompatActivity {
     }
 
 
+    @Override
+    protected void onDestroy() {
+        Log.i(this.getClass().getSimpleName(),"onDestroy");
+        Log.i(this.getClass().getSimpleName(),"Send Exit App");
+        Intent exitAppIntent = new Intent();
+        exitAppIntent.setAction("MainActivity.ExitApp");
+        sendBroadcast(exitAppIntent);
+        super.onDestroy();
+    }
+
     private void initCityData() {
         new Thread(new Runnable() {
             @Override

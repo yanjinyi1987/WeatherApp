@@ -1,7 +1,9 @@
 package geekband.yanjinyi1987.com.homework_part2_3;
 
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.database.sqlite.SQLiteDatabase;
 import android.os.Handler;
 import android.os.Looper;
@@ -45,6 +47,21 @@ public class ManageCityActivity extends AppCompatActivity {
     private final List<CityWithInfo> cityWithInfoList = new ArrayList<>();
     private ChoosedCityAdapter choosedCityAdapter;
 
+    BroadcastReceiver broadcastReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            switch (action) {
+                case "MainActivity.ExitApp":
+                    Log.i(this.getClass().getSimpleName(),"got Message, exiting");
+                    finish();
+                    break;
+                default:
+                    break;
+            }
+        }
+    };
+
     /**/
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -52,6 +69,10 @@ public class ManageCityActivity extends AppCompatActivity {
         setContentView(R.layout.activity_manage_city);
         Log.i("ManagerCityActivity","onCreate");
         initViews();
+
+        IntentFilter intentFilter = new IntentFilter();
+        intentFilter.addAction("MainActivity.ExitApp");
+        registerReceiver(broadcastReceiver,intentFilter);
     }
 
     @Override
@@ -64,6 +85,13 @@ public class ManageCityActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         Log.i("ManagerCityActivity","onResume");
+    }
+
+    @Override
+    protected void onDestroy() {
+        unregisterReceiver(broadcastReceiver);
+        super.onDestroy();
+        Log.i(this.getClass().getSimpleName(),"onDestroy");
     }
 
     private  void initViews() {

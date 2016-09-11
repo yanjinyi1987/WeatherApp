@@ -51,6 +51,7 @@ public class MainActivity extends AppCompatActivity {
     public static final int GET_CHOOSED_CITY_WEATHER = 5;
     public static final int INIT_VIEWPAGER = 4;
     public static final int GET_CITY_LIST = 3;
+    public final String EXIT_APP = "MainActivity.ExitApp";
     public static boolean datachanged=false;
 
     private ArrayList<CityList> choosedCityLists;
@@ -387,7 +388,12 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        Log.i("MainActivity","onDestroy");
+        Log.i("MainActivity","onDestroy "+this.getTaskId());
+
+        Log.i("MainActivity","Send Exit App");
+        Intent exitAppIntent = new Intent();
+        exitAppIntent.setAction(EXIT_APP);
+        sendBroadcast(exitAppIntent); //或许是有thread没有被关闭额！！！ 重构啦
     }
 }
 
