@@ -39,12 +39,16 @@ public class MainActivity extends AppCompatActivity {
     public static final String IS_CITY_LIST_IN_DATABASE = "isCityListInDatabase";
     public static final String IS_CITY_WEATHER_CACHED = "isCityWeatherCached";
     public static final int GET_CHOOSED_CITY_WEATHER = 5;
-    public static final int INIT_VIEWPAGER = 4;
     public static final int GET_CITY_LIST = 3;
 
     //private Message List
     public static final int GLOBAL_FAULT = -2;
     public static final int GOT_GLOBAL_CITY_LIST = 0;
+    public static final int GET_CHOOSED_CITY_WEATHER_FROM_WEB_FAILED=1;
+    public static final int GET_CHOOSED_CITY_WEATHER_FROM_WEB_SUCCED=2;
+    public static final int GET_CHOOSED_CITY_FROM_DB_FAILED=3;
+    public static final int GET_CHOOSED_CITY_FROM_DB_SUCCED=4; //equal to INIT_VIEWPAGER
+    public static final int INIT_VIEWPAGER = 4;
 
     //Message List
     public static final int SEND_MESSENGER_TO_SERVICE_MainActivity=0;
@@ -52,6 +56,7 @@ public class MainActivity extends AppCompatActivity {
     public static final int SEND_MESSENGER_TO_SERVICE_ChooseCityActivity=2;
     public static final int GET_GLOBAL_CITY_LIST_FROM_WEB=3;
     public static final int GET_CHOOSED_CITY_WEATHER_FROM_WEB=4;
+    public static final int GET_CHOOSED_CITY_FROM_DB=5;
 
 
     //Broadcast List
@@ -62,83 +67,6 @@ public class MainActivity extends AppCompatActivity {
 
     private ArrayList<WeatherService.CityInfo> choosedCityInfos;
     private Map<String,WeatherService.ProvinceList> provinceListMap;
-    private Handler handler = new Handler() {
-        public void handleMessage(Message msg) {
-            switch (msg.what) {
-                case 0:
-                    mTestText.setText((String)msg.obj);
-                    break;
-
-                case 1: //GET_CITY_WEATHER
-                    break;
-                case 2: //GET_WEATHER_CONDITION:
-                    break;
-                case GET_CITY_LIST: //GET_CITY_LIST
-                    //json Data -> Java Object
-                    //mTestText.setText((String)msg.obj);
-
-//                    Gson gson = new Gson();
-//                    CityList cityInfo = gson.fromJson((String)msg.obj,CityList.class);
-//
-//                    List<CityInfo> cityInfos=cityInfo.city_list;
-//                    //save city list to database and set SharedPreference isCityListInDatabase = true
-//                    saveCityListToDatabaseAndGenerateObject(cityInfos);
-
-                    break;
-                case INIT_VIEWPAGER: //init ViewPager
-                    Log.i("MainActivity","INIT_VIEWPAGER");
-                    choosedCityInfos = (ArrayList<WeatherService.CityInfo>) msg.obj;
-                    for (View view: viewList
-                         ) {
-                        view.setVisibility(View.INVISIBLE);
-                    }
-                    viewList.clear();
-                    for (WeatherService.CityInfo city: choosedCityInfos
-                         ) {
-                        String cityName = city.getCity();
-                        String cityId = city.getId();
-                        cityId=null;
-                        initViewPager(cityName,cityId,viewList);
-                        Log.i("choosedCityList",city.getCity());
-                    }
-
-                    //myPagerAdapter = new MyPagerAdapter(MainActivity.this,viewList);
-                    //viewPager.setAdapter(myPagerAdapter);
-                    myPagerAdapter.notifyDataSetChanged();
-                    if(whichToShowFirst==-1) {
-                        whichToShowFirst=0;
-                        viewPager.setCurrentItem(viewList.size() - 1);
-                    }
-                    if(choosedCityInfos !=null&& choosedCityInfos.size()!=0) {
-                        Log.i("choosedCityInfos Size","before enter"+ choosedCityInfos.size());
-                        getChoosedCityWeather(choosedCityInfos);
-                    }
-                    break;
-                case GET_CHOOSED_CITY_WEATHER:
-                    List<SimpleWeatherInfo> simpleWeatherInfo = (List<SimpleWeatherInfo>) msg.obj;
-                    int i=0;
-                    Log.i("viewList size",String.valueOf(viewList.size()));
-                    while(simpleWeatherInfo.size()!=viewList.size()) {
-                        setDatatoSharedPreferences(false, GLOBAL_SETTINGS, IS_CITY_WEATHER_CACHED);
-                        getChoosedCityWeather(choosedCityInfos);
-                    }
-                    if(simpleWeatherInfo!=null && simpleWeatherInfo.size()!=0) {
-                        for (View view : viewList
-                                ) {
-                            ((TextView) view.findViewById(R.id.weather_type)).setText(simpleWeatherInfo.get(i).weatherType);
-                            ((TextView) view.findViewById(R.id.temperature)).setText(simpleWeatherInfo.get(i).temperature+"°C");
-                            i++;
-                        }
-                    }
-                    break;
-                case -1:
-                    Toast.makeText(MainActivity.this,"网络错误",Toast.LENGTH_SHORT).show();
-                    break;
-                default:
-                    break;
-            }
-        }
-    };
 
     class ServiceHandler extends  Handler {
         @Override
@@ -150,6 +78,11 @@ public class MainActivity extends AppCompatActivity {
                 case GOT_GLOBAL_CITY_LIST:
                     mChooseCity.setEnabled(true);
                     mRefreshWeather.setEnabled(true);
+                    break;
+                case GET_CHOOSED_CITY_FROM_DB_FAILED:
+                    Log.i(TAG,"GET_CHOOSED_CITY_FROM_DB_FAILED");
+                    mChooseCity.setEnabled(false);
+                    mRefreshWeather.setEnabled(true); //refresh to try again
                     break;
                 case INIT_VIEWPAGER: //init ViewPager
                     Log.i("MainActivity","INIT_VIEWPAGER");
@@ -178,8 +111,8 @@ public class MainActivity extends AppCompatActivity {
                         getChoosedCityWeather(choosedCityInfos);
                     }
                     break;
-                case GET_CHOOSED_CITY_WEATHER:
-                    List<SimpleWeatherInfo> simpleWeatherInfo = (List<SimpleWeatherInfo>) msg.obj;
+                case GET_CHOOSED_CITY_WEATHER_FROM_WEB_SUCCED:
+                    List<WeatherService.SimpleWeatherInfo> simpleWeatherInfo = (List<WeatherService.SimpleWeatherInfo>) msg.obj;
                     int i=0;
                     Log.i("viewList size",String.valueOf(viewList.size()));
                     while(simpleWeatherInfo.size()!=viewList.size()) {
@@ -194,6 +127,11 @@ public class MainActivity extends AppCompatActivity {
                             i++;
                         }
                     }
+                    break;
+                case GET_CHOOSED_CITY_WEATHER_FROM_WEB_FAILED:
+                    Log.i(TAG,"GET_CHOOSED_CITY_WEATHER_FROM_WEB_FAILED");
+                    mChooseCity.setEnabled(false);
+                    mRefreshWeather.setEnabled(true); //refresh to try again
                     break;
                 case -1:
                     Toast.makeText(MainActivity.this,"网络错误",Toast.LENGTH_SHORT).show();
@@ -238,7 +176,6 @@ public class MainActivity extends AppCompatActivity {
 
 
     private Button mChooseCity;
-    private EditText mTestText;
     private ViewPager viewPager;
     private List<View> viewList=new ArrayList<>();
     private LayoutInflater inflater;
@@ -299,14 +236,15 @@ public class MainActivity extends AppCompatActivity {
                 getChoosedCityWeather(choosedCityInfos);
             }
         });
-
-        handler.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                setDatatoSharedPreferences(false,GLOBAL_SETTINGS,IS_CITY_WEATHER_CACHED);
-                getChoosedCityWeather(choosedCityInfos);
-            }
-        },600000);
+//>>>>>>>>>>>>>>>>>>>>>>>>>>> need update
+//        handler.postDelayed(new Runnable() {
+//            @Override
+//            public void run() {
+//                setDatatoSharedPreferences(false,GLOBAL_SETTINGS,IS_CITY_WEATHER_CACHED);
+//                getChoosedCityWeather(choosedCityInfos);
+//            }
+//        },600000);
+//<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
         SharedPreferences sharedPreferences = getSharedPreferences(GLOBAL_SETTINGS,MODE_PRIVATE);
         Boolean isCityListInDatabase = sharedPreferences.getBoolean(IS_CITY_LIST_IN_DATABASE,false);
@@ -326,100 +264,17 @@ public class MainActivity extends AppCompatActivity {
         } catch (RemoteException e) {
             e.printStackTrace();
         }
-
-//        new Thread(new Runnable() {
-//            @Override
-//            public void run() {
-//                Looper.prepare();
-//                SharedPreferences sharedPreferences = getSharedPreferences(GLOBAL_SETTINGS, MODE_PRIVATE);
-//                Boolean isCityWeatherCached = sharedPreferences.getBoolean(IS_CITY_WEATHER_CACHED, false);
-//                HeXunWeatherInfo heXunWeatherInfo;
-//                Gson gson = new Gson();
-//                CityListOperations cityListOperations = new CityListOperations(MainActivity.this);
-//                //SQLiteDatabase cityListDatabase = cityListOperations.getWritableDatabase(); //database is locked, need wait()
-//
-//                List<SimpleWeatherInfo> simpleWeatherInfoList = new ArrayList<SimpleWeatherInfo>();
-//                Message msg_return = new Message();
-//                if (!isCityWeatherCached) {
-//                    boolean getAllWeathers=true;
-//                    ArrayList<String> weatherJsons = new ArrayList<>();
-//                    for (WeatherService.CityInfo city : choosedCityInfos
-//                            ) {
-//                        WeatherHttp weatherHttp = new WeatherHttp(handler);
-//                        Message msg = weatherHttp.requestWithoutThread(WeatherHttp.GET_CITY_WEATHER, city.getId());
-//                        if (msg.what != -1) {
-//                            heXunWeatherInfo = gson.fromJson((String) msg.obj, HeXunWeatherInfo.class);
-//                            if (heXunWeatherInfo.heWeatherDS0300.get(0).status.equals("ok")) {
-//                                weatherJsons.add((String) msg.obj);
-//                                Log.i("MainActivity", String.valueOf(heXunWeatherInfo.heWeatherDS0300.get(0).now.fl));
-//                                simpleWeatherInfoList.add(new SimpleWeatherInfo(
-//                                        city.getCity(),
-//                                        city.getId(),
-//                                        heXunWeatherInfo.heWeatherDS0300.get(0).now.cond.txt,
-//                                        String.valueOf(heXunWeatherInfo.heWeatherDS0300.get(0).now.tmp)
-//                                ));
-//                            }
-//                            else {
-//                                getAllWeathers=false;
-//                                break;
-//                            }
-//                        } else {
-//                            getAllWeathers=false;
-//                            Log.i("MainActivity", "Error json");
-//                            break;
-//                        }
-//                    }
-//                    if(getAllWeathers==true) {
-//                        Log.i("getChoosedWeather",String.valueOf(weatherJsons.size()));
-//                        Log.i("getChoosedWeather ","choosedCityInfos"+String.valueOf(choosedCityInfos.size()));
-//                        cityListOperations.cacheWeathers(weatherJsons);
-//                        setDatatoSharedPreferences(true, GLOBAL_SETTINGS, IS_CITY_WEATHER_CACHED);
-//                    }
-//                }
-//                else {
-//                    //read from database
-//                    ArrayList<String> weatherJsons = (ArrayList<String>) cityListOperations.getCachedWeathers();
-//                    if (weatherJsons!=null && weatherJsons.size() != 0) {
-//                        for (String weatherJson:weatherJsons
-//                             ) {
-//                            heXunWeatherInfo = gson.fromJson(weatherJson, HeXunWeatherInfo.class);
-//                            simpleWeatherInfoList.add(new SimpleWeatherInfo(
-//                                    heXunWeatherInfo.heWeatherDS0300.get(0).basic.city,
-//                                    heXunWeatherInfo.heWeatherDS0300.get(0).basic.id,
-//                                    heXunWeatherInfo.heWeatherDS0300.get(0).now.cond.txt,
-//                                    String.valueOf(heXunWeatherInfo.heWeatherDS0300.get(0).now.tmp)
-//                            ));
-//                        }
-//
-//                    }
-//                }
-//
-//                msg_return.what= GET_CHOOSED_CITY_WEATHER;
-//                msg_return.obj = simpleWeatherInfoList;
-//                handler.sendMessage(msg_return);
-//                Looper.loop();
-//            }
-//        }).start();
     }
 
     private void getChoosedCity() {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                List<WeatherService.CityInfo> cityInfos;
-
-                Looper.prepare();
-                CityListOperations cityListOperations = new CityListOperations(MainActivity.this);
-                //SQLiteDatabase cityListDatabase = cityListOperations.getWritableDatabase(); //database is locked, need wait()
-                cityInfos = cityListOperations.getChoosedCities();
-
-                Message msg = new Message();
-                msg.what = INIT_VIEWPAGER;
-                msg.obj = cityInfos;
-                handler.sendMessage(msg);
-                Looper.loop();
-            }
-        }).start();
+        //send message to Service to do this;
+        Message msg = new Message();
+        msg.what = GET_CHOOSED_CITY_FROM_DB;
+        try {
+            mServiceMessenger.send(msg);
+        } catch (RemoteException e) {
+            e.printStackTrace();
+        }
     }
 
     private void initViewPager(String cityName,String cityId,List<View> viewList) {
@@ -529,16 +384,3 @@ class MyPagerAdapter extends PagerAdapter {
 //    public List<CityInfo> city_list;
 //}
 
-class SimpleWeatherInfo {
-    public String cityName;
-    public String cityId;
-    public String weatherType;
-    public String temperature;
-
-    public SimpleWeatherInfo(String cityName, String cityId, String weatherType, String temperature) {
-        this.cityName = cityName;
-        this.cityId = cityId;
-        this.weatherType = weatherType;
-        this.temperature = temperature;
-    }
-}
