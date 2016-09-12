@@ -4,13 +4,17 @@ import android.app.Service;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteException;
 import android.database.sqlite.SQLiteOpenHelper;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.Message;
+import android.os.Messenger;
+import android.os.RemoteException;
 import android.support.annotation.Nullable;
 import android.text.TextUtils;
 import android.util.Log;
@@ -22,6 +26,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.Serializable;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.ProtocolException;
@@ -33,15 +38,351 @@ import java.util.Map;
 
 import javax.net.ssl.HttpsURLConnection;
 
+import geekband.yanjinyi1987.com.homework_part2_3.ChooseCityActivity;
+import geekband.yanjinyi1987.com.homework_part2_3.MainActivity;
+import geekband.yanjinyi1987.com.homework_part2_3.ManageCityActivity;
+
 /**
  * Created by lexkde on 16-9-11.
  */
 
 public class WeatherService extends Service {
+    public static final String TAG = "WeatherService";
+    private boolean bindToMainActivity = false;
+    private boolean bindToManageCityActivity = false;
+    private boolean bindToChooseCityActivity = false;
+    class ClientHandler extends  Handler {
+        @Override
+        public void handleMessage(Message msg) {
+            switch(msg.what) {
+                case MainActivity.SEND_MESSENGER_TO_SERVICE_MainActivity:
+                    Log.i(TAG,"Got MainActivity's messenger");
+                    mClientMessenger_MainActivity = (Messenger) msg.obj;
+                    bindToMainActivity= true;
+                    if(mClientMessenger_MainActivity==null) {
+                        Log.i(TAG,"Got MainActivity's messenger failed");
+                        bindToMainActivity=false;
+                    }
+                    break;
+
+                case MainActivity.SEND_MESSENGER_TO_SERVICE_ManageCityActivity:
+                    Log.i(TAG,"Got ManageCityActivity's messenger");
+                    mClientMessenger_ManagerCityActivity = (Messenger) msg.obj;
+                    bindToManageCityActivity= true;
+                    if(mClientMessenger_ManagerCityActivity==null) {
+                        Log.i(TAG,"Got ManageCityActivity's messenger failed");
+                        bindToManageCityActivity=false;
+                    }
+                    break;
+
+                case MainActivity.SEND_MESSENGER_TO_SERVICE_ChooseCityActivity:
+                    Log.i(TAG,"Got ChooseCityActivity's messenger");
+                    mClientMessenger_ChooseCityActivity = (Messenger) msg.obj;
+                    bindToChooseCityActivity= true;
+                    if(mClientMessenger_ChooseCityActivity==null) {
+                        Log.i(TAG,"Got ChooseCityActivity's messenger failed");
+                        bindToChooseCityActivity=false;
+                    }
+                    break;
+                case MainActivity.GET_GLOBAL_CITY_LIST_FROM_WEB:
+                    Message returnToMainactivy_msg = new Message();
+                    if(!saveCityListToDatabaseAndGenerateObject()) {
+                        returnToMainactivy_msg.what = MainActivity.GLOBAL_FAULT;
+                    }
+                    else {
+                        returnToMainactivy_msg.what = MainActivity.GOT_GLOBAL_CITY_LIST;
+
+                    }
+                    try {
+                        mClientMessenger_MainActivity.send(returnToMainactivy_msg);
+                    } catch (RemoteException e) {
+                        e.printStackTrace();
+                    }
+                case MainActivity.GET_CHOOSED_CITY_WEATHER_FROM_WEB:
+                    getChoosedCityWeather();
+                    break;
+                default:
+                    super.handleMessage(msg);
+                    break;
+            }
+        }
+    }
+
+    private Messenger mClientMessenger_MainActivity;
+    private Messenger mClientMessenger_ChooseCityActivity;
+    private Messenger mClientMessenger_ManagerCityActivity;
+    Messenger mMessenger = new Messenger(new ClientHandler());
+
+
+    @Override
+    public void onCreate() {
+        Log.i(TAG,"onCreate");
+        super.onCreate();
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        Log.i(TAG,"onStartCommand");
+        return super.onStartCommand(intent, flags, startId);
+    }
+
     @Nullable
     @Override
     public IBinder onBind(Intent intent) {
-        return null;
+        Log.i(TAG,"onBind");
+        return mMessenger.getBinder();
+    }
+
+
+    @Override
+    public boolean onUnbind(Intent intent) {
+        Log.i(TAG,"onUnbind");
+        return super.onUnbind(intent);
+    }
+
+    @Override
+    public void onDestroy() {
+        Log.i(TAG,"onBind");
+        super.onDestroy();
+    }
+
+
+
+//    ProvinceList -> province1 province2 ...
+//                    city1     city1
+//                    city2     city2
+//                    city3     city3
+//                    ...       ...
+
+    public static class CityList {
+        public List<CityInfo> city_list;
+    }
+
+    public static class ProvinceList {
+        private String provinceName;
+        private List<CityInfo> cities;
+
+        public ProvinceList(String provinceName) {
+            this.provinceName = provinceName;
+            cities = new ArrayList<>();
+        }
+
+        public String getProvinceName() {
+            return provinceName;
+        }
+
+        public List<CityInfo> getCities() {
+            return cities;
+        }
+
+        public void setProvinceName(String provinceName) {
+            this.provinceName = provinceName;
+        }
+
+        public void setCities(List<CityInfo> cities) {
+            this.cities = cities;
+        }
+    }
+
+    public static class CityInfo implements Serializable{
+        private String city; //city
+        private String cnty; //country
+        private String id;   //cityId
+        private String lat;  //latitude
+        private String lon;  //longitude
+        private String prov; //province
+
+        public CityInfo() {
+
+        }
+
+        public CityInfo(String city) {
+            this(city,null,null,null,null,null);
+        }
+
+        public CityInfo(String city, String cnty, String id, String lat, String lon, String prov) {
+            this.city=city;
+            this.cnty=cnty;
+            this.id=id;
+            this.lat=lat;
+            this.lon=lon;
+            this.prov=prov;
+        }
+
+        public String getCity() {
+            return city;
+        }
+
+        public String getCnty() {
+            return cnty;
+        }
+
+        public String getId() {
+            return id;
+        }
+
+        public String getLat() {
+            return lat;
+        }
+
+        public String getLon() {
+            return lon;
+        }
+
+        public String getProv() {
+            return prov;
+        }
+
+        public void setCity(String city) {
+            this.city = city;
+        }
+
+        public void setCnty(String cnty) {
+            this.cnty = cnty;
+        }
+
+        public void setId(String id) {
+            this.id = id;
+        }
+
+        public void setLat(String lat) {
+            this.lat = lat;
+        }
+
+        public void setLon(String lon) {
+            this.lon = lon;
+        }
+
+        public void setProv(String prov) {
+            this.prov = prov;
+        }
+    }
+
+
+    //no need to update UI
+    private boolean saveCityListToDatabaseAndGenerateObject() {
+        boolean result = false;
+        Message msg;
+        WeatherHttp weatherHttp = new WeatherHttp();
+        msg=weatherHttp.requestWithoutThread(WeatherHttp.GET_CITY_LIST,"allchina");
+
+        if(msg.what==WeatherHttp.GET_CITY_LIST) {
+            Gson gson = new Gson();
+            WeatherService.CityList cityList = gson.fromJson((String) msg.obj, WeatherService.CityList.class);
+
+            List<WeatherService.CityInfo> cityInfos = cityList.city_list;
+
+            CityListOperations cityListOperations = new CityListOperations(WeatherService.this);
+
+            try {
+                if(cityListOperations.saveData(cityInfos)) {
+                    //set SharedPreference isCityListInDatabase = true
+                    setDatatoSharedPreferences(true,
+                            MainActivity.GLOBAL_SETTINGS,
+                            MainActivity.IS_CITY_LIST_IN_DATABASE);
+                    result=true;
+                }
+                else {
+                    result = false;
+                }
+            } catch (Exception e) {
+                result=false;
+                e.printStackTrace();
+            }
+            finally {
+                return result;
+            }
+        }
+        else {
+            return false;
+        }
+    }
+
+    private boolean setDatatoSharedPreferences(boolean data,String filename,String key) {
+        boolean result=false;
+        try {
+            SharedPreferences sharedPreferences = WeatherService.this.getSharedPreferences(filename, Context.MODE_PRIVATE);
+            SharedPreferences.Editor editor = sharedPreferences.edit();
+            editor.putBoolean(key, data);
+            editor.apply();
+            result=true;
+        }catch (Exception e) {
+            e.printStackTrace();
+        }
+        finally {
+            return result;
+        }
+    }
+
+
+    private void getChoosedCityWeather(final List<WeatherService.CityInfo> choosedCityInfos) {
+                Looper.prepare();
+                SharedPreferences sharedPreferences = getSharedPreferences(GLOBAL_SETTINGS, MODE_PRIVATE);
+                Boolean isCityWeatherCached = sharedPreferences.getBoolean(IS_CITY_WEATHER_CACHED, false);
+                HeXunWeatherInfo heXunWeatherInfo;
+                Gson gson = new Gson();
+                CityListOperations cityListOperations = new CityListOperations(MainActivity.this);
+                //SQLiteDatabase cityListDatabase = cityListOperations.getWritableDatabase(); //database is locked, need wait()
+
+                List<SimpleWeatherInfo> simpleWeatherInfoList = new ArrayList<SimpleWeatherInfo>();
+                Message msg_return = new Message();
+                if (!isCityWeatherCached) {
+                    boolean getAllWeathers=true;
+                    ArrayList<String> weatherJsons = new ArrayList<>();
+                    for (WeatherService.CityInfo city : choosedCityInfos
+                            ) {
+                        WeatherHttp weatherHttp = new WeatherHttp(handler);
+                        Message msg = weatherHttp.requestWithoutThread(WeatherHttp.GET_CITY_WEATHER, city.getId());
+                        if (msg.what != -1) {
+                            heXunWeatherInfo = gson.fromJson((String) msg.obj, HeXunWeatherInfo.class);
+                            if (heXunWeatherInfo.heWeatherDS0300.get(0).status.equals("ok")) {
+                                weatherJsons.add((String) msg.obj);
+                                Log.i("MainActivity", String.valueOf(heXunWeatherInfo.heWeatherDS0300.get(0).now.fl));
+                                simpleWeatherInfoList.add(new SimpleWeatherInfo(
+                                        city.getCity(),
+                                        city.getId(),
+                                        heXunWeatherInfo.heWeatherDS0300.get(0).now.cond.txt,
+                                        String.valueOf(heXunWeatherInfo.heWeatherDS0300.get(0).now.tmp)
+                                ));
+                            }
+                            else {
+                                getAllWeathers=false;
+                                break;
+                            }
+                        } else {
+                            getAllWeathers=false;
+                            Log.i("MainActivity", "Error json");
+                            break;
+                        }
+                    }
+                    if(getAllWeathers==true) {
+                        Log.i("getChoosedWeather",String.valueOf(weatherJsons.size()));
+                        Log.i("getChoosedWeather ","choosedCityInfos"+String.valueOf(choosedCityInfos.size()));
+                        cityListOperations.cacheWeathers(weatherJsons);
+                        setDatatoSharedPreferences(true, GLOBAL_SETTINGS, IS_CITY_WEATHER_CACHED);
+                    }
+                }
+                else {
+                    //read from database
+                    ArrayList<String> weatherJsons = (ArrayList<String>) cityListOperations.getCachedWeathers();
+                    if (weatherJsons!=null && weatherJsons.size() != 0) {
+                        for (String weatherJson:weatherJsons
+                                ) {
+                            heXunWeatherInfo = gson.fromJson(weatherJson, HeXunWeatherInfo.class);
+                            simpleWeatherInfoList.add(new SimpleWeatherInfo(
+                                    heXunWeatherInfo.heWeatherDS0300.get(0).basic.city,
+                                    heXunWeatherInfo.heWeatherDS0300.get(0).basic.id,
+                                    heXunWeatherInfo.heWeatherDS0300.get(0).now.cond.txt,
+                                    String.valueOf(heXunWeatherInfo.heWeatherDS0300.get(0).now.tmp)
+                            ));
+                        }
+
+                    }
+                }
+
+                msg_return.what= GET_CHOOSED_CITY_WEATHER;
+                msg_return.obj = simpleWeatherInfoList;
+                handler.sendMessage(msg_return);
     }
 }
 
@@ -62,29 +403,36 @@ class DBHelper extends SQLiteOpenHelper {
     public void onCreate(SQLiteDatabase db) {
         try {
             db.execSQL("create table " +
-                    CityListOperations.TABLE_HE_XUN_CITY_LIST + "(" +
+                    CityListOperations.TABLE_HE_XUN_CITY_LIST +
+                    "(" +
                     CityListOperations.SECTION_CITY + " varchar(20) not null, " +
                     CityListOperations.SECTION_COUNTRY + " varchar(20) not null, " +
                     CityListOperations.SECTION_CITY_ID + " varchar(20) not null, " +
                     CityListOperations.SECTION_LATITUDE + " varchar(20) not null, " +
                     CityListOperations.SECTION_LONGITUDE + " varchar(20) not null, " +
-                    CityListOperations.SECTION_PROVINCE + " varchar(20) not null)");
+                    CityListOperations.SECTION_PROVINCE + " varchar(20) not null"+
+                    ")"
+            );
 
 
             db.execSQL("create table " +
-                    CityListOperations.TABLE_CHOOSED_CITY_LIST + "(" +
+                    CityListOperations.TABLE_CHOOSED_CITY_LIST +
+                    "(" +
                     CityListOperations.SECTION_CITY + " varchar(20) not null, " +
                     CityListOperations.SECTION_COUNTRY + " varchar(20) not null, " +
                     CityListOperations.SECTION_CITY_ID + " varchar(20) not null, " +
                     CityListOperations.SECTION_LATITUDE + " varchar(20) not null, " +
                     CityListOperations.SECTION_LONGITUDE + " varchar(20) not null, " +
-                    CityListOperations.SECTION_PROVINCE + " varchar(20) not null)");
+                    CityListOperations.SECTION_PROVINCE + " varchar(20) not null, "+
+                    CityListOperations.SECTION_WEATHER_JSON + " text" +
+                    ")"
+            );
 
-            db.execSQL("create table " +
-                    CityListOperations.TABLE_WEATHER_CACHE + "(" +
-                    CityListOperations.SECTION_CITY + " varchar(20) not null, " +
-                    CityListOperations.SECTION_CITY_ID + " varchar(20) not null, " +
-                    CityListOperations.SECTION_WEATHER_JSON + " text" + ")");
+//            db.execSQL("create table " +
+//                    CityListOperations.TABLE_WEATHER_CACHE + "(" +
+//                    CityListOperations.SECTION_CITY + " varchar(20) not null, " +
+//                    CityListOperations.SECTION_CITY_ID + " varchar(20) not null, " +
+//                    CityListOperations.SECTION_WEATHER_JSON + " text" + ")");
         }catch (SQLiteException e) {
             e.printStackTrace();
         }
@@ -99,109 +447,7 @@ class DBHelper extends SQLiteOpenHelper {
     }
 }
 
-class CityList {
-    public List<CityInfo> city_list;
-}
 
-class ProvinceList {
-    private String provinceName;
-    private List<CityInfo> cities;
-
-    public ProvinceList(String provinceName) {
-        this.provinceName = provinceName;
-        cities = new ArrayList<>();
-    }
-
-    public String getProvinceName() {
-        return provinceName;
-    }
-
-    public List<CityInfo> getCities() {
-        return cities;
-    }
-
-    public void setProvinceName(String provinceName) {
-        this.provinceName = provinceName;
-    }
-
-    public void setCities(List<CityInfo> cities) {
-        this.cities = cities;
-    }
-}
-
-class CityInfo {
-    private String city; //city
-    private String cnty; //country
-    private String id;   //cityId
-    private String lat;  //latitude
-    private String lon;  //longitude
-    private String prov; //province
-
-    public CityInfo() {
-
-    }
-
-    public CityInfo(String city) {
-        this(city,null,null,null,null,null);
-    }
-
-    public CityInfo(String city, String cnty, String id, String lat, String lon, String prov) {
-        this.city=city;
-        this.cnty=cnty;
-        this.id=id;
-        this.lat=lat;
-        this.lon=lon;
-        this.prov=prov;
-    }
-
-    public String getCity() {
-        return city;
-    }
-
-    public String getCnty() {
-        return cnty;
-    }
-
-    public String getId() {
-        return id;
-    }
-
-    public String getLat() {
-        return lat;
-    }
-
-    public String getLon() {
-        return lon;
-    }
-
-    public String getProv() {
-        return prov;
-    }
-
-    public void setCity(String city) {
-        this.city = city;
-    }
-
-    public void setCnty(String cnty) {
-        this.cnty = cnty;
-    }
-
-    public void setId(String id) {
-        this.id = id;
-    }
-
-    public void setLat(String lat) {
-        this.lat = lat;
-    }
-
-    public void setLon(String lon) {
-        this.lon = lon;
-    }
-
-    public void setProv(String prov) {
-        this.prov = prov;
-    }
-}
 
 class CityListOperations {
     public static final String DB_NAME = "cityList.db";
@@ -227,7 +473,7 @@ class CityListOperations {
         mContext = context;
     }
 
-    public long insert_to_table_city(SQLiteDatabase db, String table_name, CityInfo city) {
+    public long insert_to_table_city(SQLiteDatabase db, String table_name, WeatherService.CityInfo city) {
         //实例化常量值
         ContentValues cValue = new ContentValues();
         //添加用户名
@@ -247,35 +493,46 @@ class CityListOperations {
         return db.insert(table_name, null, cValue);
     }
 
-    public void insert_to_table_cityLists(SQLiteDatabase db, String table_name, List<CityInfo> cityList) {
-        for (CityInfo city : cityList
+    public boolean insert_to_table_cityLists(SQLiteDatabase db, String table_name, List<WeatherService.CityInfo> cityList) {
+        for (WeatherService.CityInfo city : cityList
                 ) {
-            insert_to_table_city(db, table_name, city);
+            if(insert_to_table_city(db, table_name, city)==-1) {
+                return false;
+            }
         }
+        return true;
     }
 
-    public void saveData(List<CityInfo> cityLists) {
+    public boolean saveData(List<WeatherService.CityInfo> cityLists) {
         synchronized (helper) {
+            boolean result = false;
             if (!db.isOpen()) {
                 db = helper.getWritableDatabase();
             }
             db.beginTransaction();
             try {
-                insert_to_table_cityLists(db, TABLE_HE_XUN_CITY_LIST, cityLists);
-                db.setTransactionSuccessful();
+                if(insert_to_table_cityLists(db, TABLE_HE_XUN_CITY_LIST, cityLists)) {
+                    db.setTransactionSuccessful();
+                    result=true;
+                }
+                else {
+                    result = false;
+                }
             } catch (SQLiteException e) {
+                result = false;
                 e.printStackTrace();
             } catch (Exception e) {
+                result = false;
                 e.printStackTrace();
             } finally {
                 db.endTransaction();
                 db.close();
+                return result;
             }
-
         }
     }
 
-    public void saveSingleData(CityInfo city) {
+    public void saveSingleData(WeatherService.CityInfo city) {
         synchronized (helper) {
             if (!db.isOpen()) {
                 db = helper.getWritableDatabase();
@@ -309,8 +566,8 @@ class CityListOperations {
         }
     }
 
-    public Map<String, ProvinceList> sendDatatoMemory() {
-        Map<String, ProvinceList> provinceLists = new HashMap<>(); //define a Map
+    public Map<String, WeatherService.ProvinceList> sendDatatoMemory() {
+        Map<String, WeatherService.ProvinceList> provinceLists = new HashMap<>(); //define a Map
         synchronized (helper) {
             if (!db.isOpen()) {
                 db = helper.getWritableDatabase();
@@ -320,7 +577,7 @@ class CityListOperations {
             try {
                 if (cursor.moveToFirst()) {
                     do {
-                        CityInfo cityInfo = new CityInfo(cursor.getString(0),//city
+                        WeatherService.CityInfo cityInfo = new WeatherService.CityInfo(cursor.getString(0),//city
                                 cursor.getString(1),//country
                                 cursor.getString(2),//cityId
                                 cursor.getString(3),//latitude
@@ -329,14 +586,14 @@ class CityListOperations {
 
                         if (isZXS(cityInfo.getCity())) {
                             currentZXS = cityInfo.getCity();
-                            provinceLists.put(currentZXS, new ProvinceList(currentZXS));
+                            provinceLists.put(currentZXS, new WeatherService.ProvinceList(currentZXS));
                         }
 
                         if (TextUtils.equals("直辖市", cityInfo.getProv()) || TextUtils.equals("特别行政区", cityInfo.getProv())) {
                             provinceLists.get(currentZXS).getCities().add(cityInfo);
                         } else {
                             if (provinceLists.get(cityInfo.getProv()) == null) {
-                                provinceLists.put(cityInfo.getProv(), new ProvinceList(cityInfo.getProv()));
+                                provinceLists.put(cityInfo.getProv(), new WeatherService.ProvinceList(cityInfo.getProv()));
                             }
                             provinceLists.get(cityInfo.getProv()).getCities().add(cityInfo);
                         }
@@ -354,8 +611,8 @@ class CityListOperations {
         return provinceLists;
     }
 
-    public List<CityInfo> getChoosedCities() {
-        List<CityInfo> cities = new ArrayList<>();
+    public List<WeatherService.CityInfo> getChoosedCities() {
+        List<WeatherService.CityInfo> cities = new ArrayList<>();
         synchronized (helper) {
             if (!db.isOpen()) {
                 db = helper.getWritableDatabase();
@@ -364,7 +621,7 @@ class CityListOperations {
             try {
                 if (cursor.moveToFirst()) {
                     do {
-                        CityInfo city = new CityInfo(cursor.getString(0),//city
+                        WeatherService.CityInfo city = new WeatherService.CityInfo(cursor.getString(0),//city
                                 cursor.getString(1),//country
                                 cursor.getString(2),//cityId
                                 cursor.getString(3),//latitude
@@ -387,7 +644,7 @@ class CityListOperations {
         return cities;
     }
 
-    public long saveChoosedCity(CityInfo city) {
+    public long saveChoosedCity(WeatherService.CityInfo city) {
         long insertResult = -1;
         synchronized (helper) {
             if (!db.isOpen()) {
@@ -847,8 +1104,12 @@ class WeatherHttp{
     public static final int GET_CITY_WEATHER=0;
     public static final int GET_WEATHER_CONDITION=1;
     public static final int GET_CITY_LIST=2;
+    public static final int NETWORK_ERROR = -1;
 
     private Handler mHandler;
+    public WeatherHttp() {
+        this(null);
+    }
 
     public WeatherHttp(Handler handler) {
         mHandler=handler;
@@ -986,31 +1247,10 @@ class WeatherHttp{
 
         try {
             url = new URL(urlStr);
-        } catch (MalformedURLException e) {
-            Log.i("MainActivity","MalformedURL");
-            msg.what = -1; //error
-            e.printStackTrace();
-        }
-
-        try {
-            httpsURLConnection = (HttpsURLConnection)url.openConnection();
-        } catch (IOException e) {
-            Log.i("MainActivity","IOException in openConnection");
-            msg.what = -1; //error
-            e.printStackTrace();
-        }
-
-        try {
+            httpsURLConnection = (HttpsURLConnection) url.openConnection();
             httpsURLConnection.setRequestMethod("GET");
-        } catch (ProtocolException e) {
-            Log.i("MainActivity","ProtocolException in setRequestMethod");
-            msg.what = -1; //error
-            e.printStackTrace();
-        }
-        httpsURLConnection.setConnectTimeout(8000);
-        httpsURLConnection.setReadTimeout(8000);
-
-        try {
+            httpsURLConnection.setConnectTimeout(8000);
+            httpsURLConnection.setReadTimeout(8000);
             jsonIn = httpsURLConnection.getInputStream();
             BufferedReader reader = new BufferedReader(new InputStreamReader(jsonIn));
             response = new StringBuilder();
@@ -1019,15 +1259,17 @@ class WeatherHttp{
                 response.append(line);
             }
                     /*return json data*/
-        } catch (IOException e) {
-            Log.i("MainActivity","IOException in getInputStream");
-            msg.what = -1; //error
+        } catch (Exception e) {
+            Log.i("WeatherHttp","IOException in getInputStream");
+            msg.what = NETWORK_ERROR; //error
             e.printStackTrace();
+        }finally {
+            if(httpsURLConnection!=null) {
+                httpsURLConnection.disconnect();
+            }
         }
-        if(httpsURLConnection!=null) {
-            httpsURLConnection.disconnect();
-        }
-        if(msg.what!=-1) {
+
+        if(msg.what!= NETWORK_ERROR) {
             //msg.what = 0; //success
             msg.obj = response.toString();
             Log.i("request",(String)msg.obj);

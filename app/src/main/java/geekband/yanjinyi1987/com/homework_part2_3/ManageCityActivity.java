@@ -1,12 +1,17 @@
 package geekband.yanjinyi1987.com.homework_part2_3;
 
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.ServiceConnection;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
+import android.os.Messenger;
+import android.os.RemoteException;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
@@ -23,17 +28,62 @@ import android.widget.TextView;
 import java.util.ArrayList;
 import java.util.List;
 
+import geekband.yanjinyi1987.com.homework_part2_3.service.WeatherService;
+
 public class ManageCityActivity extends AppCompatActivity {
+    public static final String TAG = "ManagerActivity";
 
     private Button mChooseCityButton;
     private ListView mChoosedCities;
-    List<CityInfo> cityInfos;
+    List<WeatherService.CityInfo> cityInfos;
+
+    class ServiceHandler extends  Handler {
+        @Override
+        public void handleMessage(Message msg) {
+            switch(msg.what) {
+                default:
+                    super.handleMessage(msg);
+                    break;
+            }
+        }
+    }
+
+    private Messenger mServiceMessenger;
+    private Messenger mMessenger = new Messenger(new ServiceHandler());
+
+    private boolean onBound = false;
+
+    public ServiceConnection mServiceConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            Log.i(TAG,"Connected to Service");
+            Log.i(TAG,"Got Service's Messenger");
+            mServiceMessenger = new Messenger(service);
+            Log.i(TAG,"Send Messenger to Service directly");
+            Message msg = new Message();
+            msg.what = SEND_MESSENGER_TO_SERVICE_ManageCityActivity;
+            msg.obj = mMessenger;
+            try {
+                mServiceMessenger.send(msg);
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+            onBound = true;
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            mServiceMessenger = null;
+            onBound = false;
+        }
+    };
+
     private Handler mHandler = new Handler() {
         @Override
         public void handleMessage(Message msg) {
             switch(msg.what) {
                 case 1:
-                    cityInfos = (List<CityInfo>) msg.obj;
+                    cityInfos = (List<WeatherService.CityInfo>) msg.obj;
                     initListViews(cityInfos);
                     break;
                 default:
@@ -67,6 +117,8 @@ public class ManageCityActivity extends AppCompatActivity {
         setContentView(R.layout.activity_manage_city);
         Log.i("ManagerCityActivity","onCreate");
         initViews();
+        //bind Service
+        bindService(new Intent(ManageCityActivity.this,WeatherService.class),mServiceConnection,BIND_AUTO_CREATE);
 
         IntentFilter intentFilter = new IntentFilter();
         intentFilter.addAction("MainActivity.ExitApp");
@@ -93,6 +145,7 @@ public class ManageCityActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        unbindService(mServiceConnection);
         unregisterReceiver(broadcastReceiver);
         super.onDestroy();
         Log.i(this.getClass().getSimpleName(),"onDestroy");
@@ -134,9 +187,9 @@ public class ManageCityActivity extends AppCompatActivity {
 
     }
 
-    private  void initListViews(List<CityInfo> cities) {
+    private  void initListViews(List<WeatherService.CityInfo> cities) {
         choosedCityAdapter.clear();
-        for (CityInfo city: cities
+        for (WeatherService.CityInfo city: cities
              ) {
             cityWithInfoList.add(new CityWithInfo(city,-1));
         }
@@ -164,7 +217,7 @@ public class ManageCityActivity extends AppCompatActivity {
         new Thread(new Runnable() {
             @Override
             public void run() {
-                List<CityInfo> cityInfos;
+                List<WeatherService.CityInfo> cityInfos;
 
                 Looper.prepare();
                 Message msg = new Message();
@@ -272,15 +325,15 @@ class ChoosedCityAdapter extends ArrayAdapter<CityWithInfo> {
 }
 
 class CityWithInfo {
-    private CityInfo city;
+    private WeatherService.CityInfo city;
     private int imageId;
 
-    public CityWithInfo(CityInfo city, int imageId) {
+    public CityWithInfo(WeatherService.CityInfo city, int imageId) {
         this.city=city;
         this.imageId=imageId;
     }
 
-    public CityInfo getName() {
+    public WeatherService.CityInfo getName() {
         return city;
     }
 

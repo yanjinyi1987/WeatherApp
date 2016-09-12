@@ -1,13 +1,19 @@
 package geekband.yanjinyi1987.com.homework_part2_3;
 
 import geekband.yanjinyi1987.com.homework_part2_3.service.HeXunWeatherInfo;
+import geekband.yanjinyi1987.com.homework_part2_3.service.WeatherService;
 
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
+import android.os.Messenger;
+import android.os.RemoteException;
 import android.support.v4.view.PagerAdapter;
 import android.support.v4.view.ViewPager;
 import android.support.v7.app.AppCompatActivity;
@@ -35,11 +41,27 @@ public class MainActivity extends AppCompatActivity {
     public static final int GET_CHOOSED_CITY_WEATHER = 5;
     public static final int INIT_VIEWPAGER = 4;
     public static final int GET_CITY_LIST = 3;
+
+    //private Message List
+    public static final int GLOBAL_FAULT = -2;
+    public static final int GOT_GLOBAL_CITY_LIST = 0;
+
+    //Message List
+    public static final int SEND_MESSENGER_TO_SERVICE_MainActivity=0;
+    public static final int SEND_MESSENGER_TO_SERVICE_ManageCityActivity =1;
+    public static final int SEND_MESSENGER_TO_SERVICE_ChooseCityActivity=2;
+    public static final int GET_GLOBAL_CITY_LIST_FROM_WEB=3;
+    public static final int GET_CHOOSED_CITY_WEATHER_FROM_WEB=4;
+
+
+    //Broadcast List
     public final String EXIT_APP = "MainActivity.ExitApp";
     public static boolean datachanged=false;
 
-    private ArrayList<CityInfo> choosedCityInfos;
-    private Map<String,ProvinceList> provinceListMap;
+    public static final String TAG = "MainActivity";
+
+    private ArrayList<WeatherService.CityInfo> choosedCityInfos;
+    private Map<String,WeatherService.ProvinceList> provinceListMap;
     private Handler handler = new Handler() {
         public void handleMessage(Message msg) {
             switch (msg.what) {
@@ -65,13 +87,13 @@ public class MainActivity extends AppCompatActivity {
                     break;
                 case INIT_VIEWPAGER: //init ViewPager
                     Log.i("MainActivity","INIT_VIEWPAGER");
-                    choosedCityInfos = (ArrayList<CityInfo>) msg.obj;
+                    choosedCityInfos = (ArrayList<WeatherService.CityInfo>) msg.obj;
                     for (View view: viewList
                          ) {
                         view.setVisibility(View.INVISIBLE);
                     }
                     viewList.clear();
-                    for (CityInfo city: choosedCityInfos
+                    for (WeatherService.CityInfo city: choosedCityInfos
                          ) {
                         String cityName = city.getCity();
                         String cityId = city.getId();
@@ -118,6 +140,101 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
+    class ServiceHandler extends  Handler {
+        @Override
+        public void handleMessage(Message msg) {
+            switch(msg.what) {
+                //>>>>>>>>>>>>>>
+                case GLOBAL_FAULT:
+                    break;
+                case GOT_GLOBAL_CITY_LIST:
+                    mChooseCity.setEnabled(true);
+                    mRefreshWeather.setEnabled(true);
+                    break;
+                case INIT_VIEWPAGER: //init ViewPager
+                    Log.i("MainActivity","INIT_VIEWPAGER");
+                    choosedCityInfos = (ArrayList<WeatherService.CityInfo>) msg.obj;
+                    for (View view: viewList
+                            ) {
+                        view.setVisibility(View.INVISIBLE);
+                    }
+                    viewList.clear();
+                    for (WeatherService.CityInfo city: choosedCityInfos
+                            ) {
+                        String cityName = city.getCity();
+                        String cityId = city.getId();
+                        cityId=null;
+                        initViewPager(cityName,cityId,viewList);
+                        Log.i(TAG,"choosedCityList "+city.getCity());
+                    }
+
+                    myPagerAdapter.notifyDataSetChanged();
+                    if(whichToShowFirst==-1) {
+                        whichToShowFirst=0;
+                        viewPager.setCurrentItem(viewList.size() - 1);
+                    }
+                    if(choosedCityInfos !=null&& choosedCityInfos.size()!=0) {
+                        Log.i(TAG,"choosedCityInfos Size "+"before enter "+ choosedCityInfos.size());
+                        getChoosedCityWeather(choosedCityInfos);
+                    }
+                    break;
+                case GET_CHOOSED_CITY_WEATHER:
+                    List<SimpleWeatherInfo> simpleWeatherInfo = (List<SimpleWeatherInfo>) msg.obj;
+                    int i=0;
+                    Log.i("viewList size",String.valueOf(viewList.size()));
+                    while(simpleWeatherInfo.size()!=viewList.size()) {
+                        setDatatoSharedPreferences(false, GLOBAL_SETTINGS, IS_CITY_WEATHER_CACHED);
+                        getChoosedCityWeather(choosedCityInfos);
+                    }
+                    if(simpleWeatherInfo!=null && simpleWeatherInfo.size()!=0) {
+                        for (View view : viewList
+                                ) {
+                            ((TextView) view.findViewById(R.id.weather_type)).setText(simpleWeatherInfo.get(i).weatherType);
+                            ((TextView) view.findViewById(R.id.temperature)).setText(simpleWeatherInfo.get(i).temperature+"°C");
+                            i++;
+                        }
+                    }
+                    break;
+                case -1:
+                    Toast.makeText(MainActivity.this,"网络错误",Toast.LENGTH_SHORT).show();
+                    break;
+                //<<<<<<<<<<<<<<
+                default:
+                    super.handleMessage(msg);
+                    break;
+            }
+        }
+    }
+
+    private Messenger mServiceMessenger;
+    private Messenger mMessenger = new Messenger(new ServiceHandler());
+
+    private boolean onBound = false;
+
+    public ServiceConnection mServiceConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            Log.i(TAG,"Connected to Service");
+            Log.i(TAG,"Got Service's Messenger");
+            mServiceMessenger = new Messenger(service);
+            Log.i(TAG,"Send Messenger to Service directly");
+            Message msg = new Message();
+            msg.what = SEND_MESSENGER_TO_SERVICE_MainActivity;
+            msg.obj = mMessenger;
+            try {
+                mServiceMessenger.send(msg);
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+            onBound = true;
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            mServiceMessenger = null;
+            onBound = false;
+        }
+    };
 
 
     private Button mChooseCity;
@@ -134,18 +251,24 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         Log.i("MainActivity","onCreate");
+        //start the service
+        startService(new Intent(MainActivity.this,WeatherService.class));
+        //bind the service
+        bindService(new Intent(MainActivity.this,WeatherService.class),mServiceConnection,BIND_AUTO_CREATE);
         String cityId = getIntent().getStringExtra("Position");
         if(cityId!=null) {
             whichToShowFirst=-1;
         }
         initViews();
     }
+
     public void setDatatoSharedPreferences(boolean data,String filename,String key) {
         SharedPreferences sharedPreferences = getBaseContext().getSharedPreferences(filename, Context.MODE_PRIVATE);
         SharedPreferences.Editor editor = sharedPreferences.edit();
         editor.putBoolean(key,data);
         editor.apply();
     }
+
     private void initViews() {
         mChooseCity = (Button) findViewById(R.id.choose_city);
         //mTestText = (EditText) findViewById(R.id.test_text);
@@ -189,90 +312,101 @@ public class MainActivity extends AppCompatActivity {
         Boolean isCityListInDatabase = sharedPreferences.getBoolean(IS_CITY_LIST_IN_DATABASE,false);
         if(!isCityListInDatabase) {
             getCityListandSave(); //save data in handler
+            mChooseCity.setEnabled(false);
+            mRefreshWeather.setEnabled(false);
         }
     }
 
-    private void getChoosedCityWeather(final List<CityInfo> choosedCityInfos) {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                Looper.prepare();
-                SharedPreferences sharedPreferences = getSharedPreferences(GLOBAL_SETTINGS, MODE_PRIVATE);
-                Boolean isCityWeatherCached = sharedPreferences.getBoolean(IS_CITY_WEATHER_CACHED, false);
-                HeXunWeatherInfo heXunWeatherInfo;
-                Gson gson = new Gson();
-                CityListOperations cityListOperations = new CityListOperations(MainActivity.this);
-                //SQLiteDatabase cityListDatabase = cityListOperations.getWritableDatabase(); //database is locked, need wait()
+    private void getChoosedCityWeather(List<WeatherService.CityInfo> choosedCityIds) {
+        //send message to Service to do this;
+        Message msg = new Message();
+        msg.what = GET_CHOOSED_CITY_WEATHER_FROM_WEB;
+        try {
+            mServiceMessenger.send(msg);
+        } catch (RemoteException e) {
+            e.printStackTrace();
+        }
 
-                List<SimpleWeatherInfo> simpleWeatherInfoList = new ArrayList<SimpleWeatherInfo>();
-                Message msg_return = new Message();
-                if (!isCityWeatherCached) {
-                    boolean getAllWeathers=true;
-                    ArrayList<String> weatherJsons = new ArrayList<>();
-                    for (CityInfo city : choosedCityInfos
-                            ) {
-                        WeatherHttp weatherHttp = new WeatherHttp(handler);
-                        Message msg = weatherHttp.requestWithoutThread(WeatherHttp.GET_CITY_WEATHER, city.getId());
-                        if (msg.what != -1) {
-                            heXunWeatherInfo = gson.fromJson((String) msg.obj, HeXunWeatherInfo.class);
-                            if (heXunWeatherInfo.heWeatherDS0300.get(0).status.equals("ok")) {
-                                weatherJsons.add((String) msg.obj);
-                                Log.i("MainActivity", String.valueOf(heXunWeatherInfo.heWeatherDS0300.get(0).now.fl));
-                                simpleWeatherInfoList.add(new SimpleWeatherInfo(
-                                        city.getCity(),
-                                        city.getId(),
-                                        heXunWeatherInfo.heWeatherDS0300.get(0).now.cond.txt,
-                                        String.valueOf(heXunWeatherInfo.heWeatherDS0300.get(0).now.tmp)
-                                ));
-                            }
-                            else {
-                                getAllWeathers=false;
-                                break;
-                            }
-                        } else {
-                            getAllWeathers=false;
-                            Log.i("MainActivity", "Error json");
-                            break;
-                        }
-                    }
-                    if(getAllWeathers==true) {
-                        Log.i("getChoosedWeather",String.valueOf(weatherJsons.size()));
-                        Log.i("getChoosedWeather ","choosedCityInfos"+String.valueOf(choosedCityInfos.size()));
-                        cityListOperations.cacheWeathers(weatherJsons);
-                        setDatatoSharedPreferences(true, GLOBAL_SETTINGS, IS_CITY_WEATHER_CACHED);
-                    }
-                }
-                else {
-                    //read from database
-                    ArrayList<String> weatherJsons = (ArrayList<String>) cityListOperations.getCachedWeathers();
-                    if (weatherJsons!=null && weatherJsons.size() != 0) {
-                        for (String weatherJson:weatherJsons
-                             ) {
-                            heXunWeatherInfo = gson.fromJson(weatherJson, HeXunWeatherInfo.class);
-                            simpleWeatherInfoList.add(new SimpleWeatherInfo(
-                                    heXunWeatherInfo.heWeatherDS0300.get(0).basic.city,
-                                    heXunWeatherInfo.heWeatherDS0300.get(0).basic.id,
-                                    heXunWeatherInfo.heWeatherDS0300.get(0).now.cond.txt,
-                                    String.valueOf(heXunWeatherInfo.heWeatherDS0300.get(0).now.tmp)
-                            ));
-                        }
-
-                    }
-                }
-
-                msg_return.what= GET_CHOOSED_CITY_WEATHER;
-                msg_return.obj = simpleWeatherInfoList;
-                handler.sendMessage(msg_return);
-                Looper.loop();
-            }
-        }).start();
+//        new Thread(new Runnable() {
+//            @Override
+//            public void run() {
+//                Looper.prepare();
+//                SharedPreferences sharedPreferences = getSharedPreferences(GLOBAL_SETTINGS, MODE_PRIVATE);
+//                Boolean isCityWeatherCached = sharedPreferences.getBoolean(IS_CITY_WEATHER_CACHED, false);
+//                HeXunWeatherInfo heXunWeatherInfo;
+//                Gson gson = new Gson();
+//                CityListOperations cityListOperations = new CityListOperations(MainActivity.this);
+//                //SQLiteDatabase cityListDatabase = cityListOperations.getWritableDatabase(); //database is locked, need wait()
+//
+//                List<SimpleWeatherInfo> simpleWeatherInfoList = new ArrayList<SimpleWeatherInfo>();
+//                Message msg_return = new Message();
+//                if (!isCityWeatherCached) {
+//                    boolean getAllWeathers=true;
+//                    ArrayList<String> weatherJsons = new ArrayList<>();
+//                    for (WeatherService.CityInfo city : choosedCityInfos
+//                            ) {
+//                        WeatherHttp weatherHttp = new WeatherHttp(handler);
+//                        Message msg = weatherHttp.requestWithoutThread(WeatherHttp.GET_CITY_WEATHER, city.getId());
+//                        if (msg.what != -1) {
+//                            heXunWeatherInfo = gson.fromJson((String) msg.obj, HeXunWeatherInfo.class);
+//                            if (heXunWeatherInfo.heWeatherDS0300.get(0).status.equals("ok")) {
+//                                weatherJsons.add((String) msg.obj);
+//                                Log.i("MainActivity", String.valueOf(heXunWeatherInfo.heWeatherDS0300.get(0).now.fl));
+//                                simpleWeatherInfoList.add(new SimpleWeatherInfo(
+//                                        city.getCity(),
+//                                        city.getId(),
+//                                        heXunWeatherInfo.heWeatherDS0300.get(0).now.cond.txt,
+//                                        String.valueOf(heXunWeatherInfo.heWeatherDS0300.get(0).now.tmp)
+//                                ));
+//                            }
+//                            else {
+//                                getAllWeathers=false;
+//                                break;
+//                            }
+//                        } else {
+//                            getAllWeathers=false;
+//                            Log.i("MainActivity", "Error json");
+//                            break;
+//                        }
+//                    }
+//                    if(getAllWeathers==true) {
+//                        Log.i("getChoosedWeather",String.valueOf(weatherJsons.size()));
+//                        Log.i("getChoosedWeather ","choosedCityInfos"+String.valueOf(choosedCityInfos.size()));
+//                        cityListOperations.cacheWeathers(weatherJsons);
+//                        setDatatoSharedPreferences(true, GLOBAL_SETTINGS, IS_CITY_WEATHER_CACHED);
+//                    }
+//                }
+//                else {
+//                    //read from database
+//                    ArrayList<String> weatherJsons = (ArrayList<String>) cityListOperations.getCachedWeathers();
+//                    if (weatherJsons!=null && weatherJsons.size() != 0) {
+//                        for (String weatherJson:weatherJsons
+//                             ) {
+//                            heXunWeatherInfo = gson.fromJson(weatherJson, HeXunWeatherInfo.class);
+//                            simpleWeatherInfoList.add(new SimpleWeatherInfo(
+//                                    heXunWeatherInfo.heWeatherDS0300.get(0).basic.city,
+//                                    heXunWeatherInfo.heWeatherDS0300.get(0).basic.id,
+//                                    heXunWeatherInfo.heWeatherDS0300.get(0).now.cond.txt,
+//                                    String.valueOf(heXunWeatherInfo.heWeatherDS0300.get(0).now.tmp)
+//                            ));
+//                        }
+//
+//                    }
+//                }
+//
+//                msg_return.what= GET_CHOOSED_CITY_WEATHER;
+//                msg_return.obj = simpleWeatherInfoList;
+//                handler.sendMessage(msg_return);
+//                Looper.loop();
+//            }
+//        }).start();
     }
 
     private void getChoosedCity() {
         new Thread(new Runnable() {
             @Override
             public void run() {
-                List<CityInfo> cityInfos;
+                List<WeatherService.CityInfo> cityInfos;
 
                 Looper.prepare();
                 CityListOperations cityListOperations = new CityListOperations(MainActivity.this);
@@ -304,40 +438,14 @@ public class MainActivity extends AppCompatActivity {
     }
     //no need to update UI
     private void saveCityListToDatabaseAndGenerateObject() {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                Message msg;
-                WeatherHttp weatherHttp = new WeatherHttp(handler);
-                msg=weatherHttp.requestWithoutThread(WeatherHttp.GET_CITY_LIST,"allchina");
-
-                if(msg.what==GET_CITY_LIST) {
-                    Gson gson = new Gson();
-                    CityList cityList = gson.fromJson((String) msg.obj, CityList.class);
-
-                    List<CityInfo> cityInfos = cityList.city_list;
-
-                    CityListOperations cityListOperations = new CityListOperations(MainActivity.this);
-                    //这一步创建了数据库
-                    //SQLiteDatabase cityListDatabase = cityListOperations.getWritableDatabase();
-                    try {
-                        cityListOperations.saveData(cityInfos);
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    } finally {
-                        //set SharedPreference isCityListInDatabase = true
-                        setDatatoSharedPreferences(true, GLOBAL_SETTINGS, IS_CITY_LIST_IN_DATABASE);
-                    }
-                }
-            }
-
-            private void setDatatoSharedPreferences(boolean data,String filename,String key) {
-                SharedPreferences sharedPreferences = MainActivity.this.getSharedPreferences(filename, Context.MODE_PRIVATE);
-                SharedPreferences.Editor editor = sharedPreferences.edit();
-                editor.putBoolean(key,data);
-                editor.apply();
-            }
-        }).start();
+        //send message to Service to do this;
+        Message msg = new Message();
+        msg.what = GET_GLOBAL_CITY_LIST_FROM_WEB;
+        try {
+            mServiceMessenger.send(msg);
+        } catch (RemoteException e) {
+            e.printStackTrace();
+        }
     }
 
     @Override
@@ -373,7 +481,8 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
         Log.i("MainActivity","onDestroy "+this.getTaskId());
-
+        //unbindService
+        unbindService(mServiceConnection);
         Log.i("MainActivity","Send Exit App");
         Intent exitAppIntent = new Intent();
         exitAppIntent.setAction(EXIT_APP);
@@ -433,110 +542,3 @@ class SimpleWeatherInfo {
         this.temperature = temperature;
     }
 }
-
-//ProvinceList -> province1 province2 ...
-//                    city1     city1
-//                    city2     city2
-//                    city3     city3
-//                    ...       ...
-
-
-//class ProvinceList {
-//    private String provinceName;
-//    private List<CityInfo> cities;
-//
-//    public ProvinceList(String provinceName) {
-//        this.provinceName = provinceName;
-//        cities = new ArrayList<>();
-//    }
-//
-//    public String getProvinceName() {
-//        return provinceName;
-//    }
-//
-//    public List<CityInfo> getCities() {
-//        return cities;
-//    }
-//
-//    public void setProvinceName(String provinceName) {
-//        this.provinceName = provinceName;
-//    }
-//
-//    public void setCities(List<CityInfo> cities) {
-//        this.cities = cities;
-//    }
-//}
-//
-//class CityInfo {
-//    private String city; //city
-//    private String cnty; //country
-//    private String id;   //cityId
-//    private String lat;  //latitude
-//    private String lon;  //longitude
-//    private String prov; //province
-//
-//    public CityInfo() {
-//
-//    }
-//
-//    public CityInfo(String city) {
-//        this(city,null,null,null,null,null);
-//    }
-//
-//    public CityInfo(String city, String cnty, String id, String lat, String lon, String prov) {
-//        this.city=city;
-//        this.cnty=cnty;
-//        this.id=id;
-//        this.lat=lat;
-//        this.lon=lon;
-//        this.prov=prov;
-//    }
-//
-//    public String getCity() {
-//        return city;
-//    }
-//
-//    public String getCnty() {
-//        return cnty;
-//    }
-//
-//    public String getId() {
-//        return id;
-//    }
-//
-//    public String getLat() {
-//        return lat;
-//    }
-//
-//    public String getLon() {
-//        return lon;
-//    }
-//
-//    public String getProv() {
-//        return prov;
-//    }
-//
-//    public void setCity(String city) {
-//        this.city = city;
-//    }
-//
-//    public void setCnty(String cnty) {
-//        this.cnty = cnty;
-//    }
-//
-//    public void setId(String id) {
-//        this.id = id;
-//    }
-//
-//    public void setLat(String lat) {
-//        this.lat = lat;
-//    }
-//
-//    public void setLon(String lon) {
-//        this.lon = lon;
-//    }
-//
-//    public void setProv(String prov) {
-//        this.prov = prov;
-//    }
-//}

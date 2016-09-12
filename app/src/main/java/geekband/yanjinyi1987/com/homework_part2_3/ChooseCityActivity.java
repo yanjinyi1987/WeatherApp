@@ -1,11 +1,16 @@
 package geekband.yanjinyi1987.com.homework_part2_3;
 
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
+import android.os.Messenger;
+import android.os.RemoteException;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
@@ -23,28 +28,78 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
-public class ChooseCityActivity extends AppCompatActivity {
+import geekband.yanjinyi1987.com.homework_part2_3.service.WeatherService;
 
+public class ChooseCityActivity extends AppCompatActivity {
+    public static final String TAG = "ChooseCityActivity";
     public static final int WRITE_FINISHED = 2;
+    public static final int SEND_DATA_TO_MEMORY = 1;
+
     Handler mHandler;
-    Map<String,ProvinceList> cityLists;
+    Map<String,WeatherService.ProvinceList> cityLists;
+
+    class ServiceHandler extends  Handler {
+        @Override
+        public void handleMessage(Message msg) {
+            switch(msg.what) {
+                default:
+                    super.handleMessage(msg);
+                    break;
+            }
+        }
+    }
+
+    private Messenger mServiceMessenger;
+    private Messenger mMessenger = new Messenger(new ServiceHandler());
+
+    private boolean onBound = false;
+
+    public ServiceConnection mServiceConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            Log.i(TAG,"Connected to Service");
+            Log.i(TAG,"Got Service's Messenger");
+            mServiceMessenger = new Messenger(service);
+            Log.i(TAG,"Send Messenger to Service directly");
+            Message msg = new Message();
+            msg.what = SEND_MESSENGER_TO_SERVICE_ChooseCityActivity;
+            msg.obj = mMessenger;
+            try {
+                mServiceMessenger.send(msg);
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+            onBound = true;
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            mServiceMessenger = null;
+            onBound = false;
+        }
+    };
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_choose_city);
 
+        //bindService
+        bindService(new Intent(ChooseCityActivity.this,WeatherService.class),
+                mServiceConnection,
+                BIND_AUTO_CREATE);
+
         mHandler = new Handler(){
             @Override
             public void handleMessage(Message msg) {
                 switch (msg.what) {
-                    case 1:
-                        cityLists = (Map<String, ProvinceList>) msg.obj;
+                    case SEND_DATA_TO_MEMORY:
+                        cityLists = (Map<String, WeatherService.ProvinceList>) msg.obj;
                         initListViews(cityLists);
                         break;
                     case WRITE_FINISHED:
                         Log.i("ChoosedCityActivity","start MainActivity");
                         Intent intent = new Intent(ChooseCityActivity.this,MainActivity.class);
-                        intent.putExtra("Position",((CityInfo)msg.obj).getId());
+                        intent.putExtra("Position",((WeatherService.CityInfo)msg.obj).getId());
                         startActivityForResult(intent,0); //uiying OnCreate
                         finish();
                         break;
@@ -60,6 +115,7 @@ public class ChooseCityActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        unbindService(mServiceConnection);
         Log.i(this.getClass().getSimpleName(),"onDestroy");
         Log.i(this.getClass().getSimpleName(),"Send Exit App");
         Intent exitAppIntent = new Intent();
@@ -77,9 +133,9 @@ public class ChooseCityActivity extends AppCompatActivity {
                 CityListOperations cityListOperations = new CityListOperations(ChooseCityActivity.this);
                 //SQLiteDatabase cityListDatabase = cityListOperations.getWritableDatabase();
 
-                Map<String,ProvinceList> cityLists = cityListOperations.sendDatatoMemory();
+                Map<String,WeatherService.ProvinceList> cityLists = cityListOperations.sendDatatoMemory();
 
-                msg.what = 1;
+                msg.what = SEND_DATA_TO_MEMORY;
                 msg.obj = cityLists;
 
                 mHandler.sendMessage(msg);
@@ -91,11 +147,11 @@ public class ChooseCityActivity extends AppCompatActivity {
         initCityData();
     }
 //ExpandableListView
-    private void initListViews(final Map<String, ProvinceList> cityLists) {
+    private void initListViews(final Map<String, WeatherService.ProvinceList> cityLists) {
         final List<CityWithInfo> provinceList = new ArrayList<>();
         for (String prov_name:cityLists.keySet()
              ) {
-            CityInfo cityInfo = new CityInfo(prov_name);
+            WeatherService.CityInfo cityInfo = new WeatherService.CityInfo(prov_name);
             provinceList.add(new CityWithInfo(cityInfo,R.drawable.acs));
 
         }
@@ -127,7 +183,7 @@ public class ChooseCityActivity extends AppCompatActivity {
             @Override
             public boolean onChildClick(ExpandableListView parent, View v, int groupPosition, int childPosition, long id) {
                 //pass data to ManageCityActivity
-                CityInfo choosedCity = cityLists.get(provinceList.get(groupPosition).getName()).getCities().get(childPosition);
+                WeatherService.CityInfo choosedCity = cityLists.get(provinceList.get(groupPosition).getName()).getCities().get(childPosition);
                 writeChoosedCitytoDatabase(choosedCity);
                 setDatatoSharedPreferences(false,MainActivity.GLOBAL_SETTINGS,MainActivity.IS_CITY_WEATHER_CACHED);
                 return false;
@@ -143,7 +199,7 @@ public class ChooseCityActivity extends AppCompatActivity {
         editor.apply();
     }
 
-    private void writeChoosedCitytoDatabase(final CityInfo city) {
+    private void writeChoosedCitytoDatabase(final WeatherService.CityInfo city) {
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -192,13 +248,13 @@ public class ChooseCityActivity extends AppCompatActivity {
 
 class CityAdapter_Expand extends BaseExpandableListAdapter {
     List<CityWithInfo> groupList;
-    Map<String,ProvinceList> childMap;
+    Map<String,WeatherService.ProvinceList> childMap;
     private int parentResourceId,childResourceId;
     Context mContext;
 
 
     public CityAdapter_Expand(Context context, int parentLayoutResourceId, int childLayoutResourceId
-            , List<CityWithInfo> provinces, Map<String,ProvinceList> citiesPerProvince) {
+            , List<CityWithInfo> provinces, Map<String,WeatherService.ProvinceList> citiesPerProvince) {
         parentResourceId = parentLayoutResourceId;
         childResourceId = childLayoutResourceId;
         groupList = provinces;
