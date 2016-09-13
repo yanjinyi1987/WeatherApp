@@ -8,7 +8,6 @@ import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.os.Handler;
 import android.os.IBinder;
-import android.os.Looper;
 import android.os.Message;
 import android.os.Messenger;
 import android.os.RemoteException;
@@ -32,7 +31,15 @@ import geekband.yanjinyi1987.com.homework_part2_3.service.WeatherService;
 
 public class ManageCityActivity extends AppCompatActivity {
     public static final String TAG = "ManagerActivity";
-
+    public static int mClickingPostion=-1;
+    //private Message List
+    public static final int GLOBAL_FAULT = -2;
+    public static final int GOT_GLOBAL_CITY_LIST = 0;
+    public static final int DELETE_CHOSEN_CITY_FROM_DB_FAILED=1;
+    public static final int DELETE_CHOSEN_CITY_FROM_DB_SUCCED=2;
+    public static final int GET_CHOOSED_CITY_FROM_DB_FAILED=3;
+    public static final int GET_CHOOSED_CITY_FROM_DB_SUCCED=4; //equal to INIT_VIEWPAGER
+    public static final int INIT_VIEWPAGER = 4;
     private Button mChooseCityButton;
     private ListView mChoosedCities;
     List<WeatherService.CityInfo> cityInfos;
@@ -41,6 +48,30 @@ public class ManageCityActivity extends AppCompatActivity {
         @Override
         public void handleMessage(Message msg) {
             switch(msg.what) {
+                case GET_CHOOSED_CITY_FROM_DB_SUCCED:
+                    Log.i(TAG,"GET_CHOOSED_CITY_FROM_DB_SUCCED");
+                    cityInfos = (List<WeatherService.CityInfo>)(msg.getData().getSerializable(
+                            "CHOSED_CITY_LIST"));
+                    initListViews(cityInfos);
+                    break;
+                case GET_CHOOSED_CITY_FROM_DB_FAILED:
+                    Log.i(TAG,"GET_CHOOSED_CITY_FROM_DB_FAILED");
+                    //add refresh button
+                    break;
+                case DELETE_CHOSEN_CITY_FROM_DB_SUCCED:
+                    Log.i(TAG,"DELETE_CHOSEN_CITY_FROM_DB_SUCCED");
+                    if(mClickingPostion!=-1) {
+                        cityWithInfoList.remove(mClickingPostion);
+                        //delete the data in the database
+                        mChosenCityAdapter.notifyDataSetChanged();
+                        //
+                        MainActivity.datachanged = true;
+                    }
+                    break;
+                case DELETE_CHOSEN_CITY_FROM_DB_FAILED:
+                    Log.i(TAG,"DELETE_CHOSEN_CITY_FROM_DB_FAILED");
+                    MainActivity.datachanged = false;
+                    break;
                 default:
                     super.handleMessage(msg);
                     break;
@@ -48,7 +79,7 @@ public class ManageCityActivity extends AppCompatActivity {
         }
     }
 
-    private Messenger mServiceMessenger;
+    public Messenger mServiceMessenger;
     private Messenger mMessenger = new Messenger(new ServiceHandler());
 
     private boolean onBound = false;
@@ -61,7 +92,7 @@ public class ManageCityActivity extends AppCompatActivity {
             mServiceMessenger = new Messenger(service);
             Log.i(TAG,"Send Messenger to Service directly");
             Message msg = new Message();
-            msg.what = SEND_MESSENGER_TO_SERVICE_ManageCityActivity;
+            msg.what = MainActivity.SEND_MESSENGER_TO_SERVICE_ManageCityActivity;
             msg.obj = mMessenger;
             try {
                 mServiceMessenger.send(msg);
@@ -69,6 +100,7 @@ public class ManageCityActivity extends AppCompatActivity {
                 e.printStackTrace();
             }
             onBound = true;
+            initViews();
         }
 
         @Override
@@ -78,22 +110,9 @@ public class ManageCityActivity extends AppCompatActivity {
         }
     };
 
-    private Handler mHandler = new Handler() {
-        @Override
-        public void handleMessage(Message msg) {
-            switch(msg.what) {
-                case 1:
-                    cityInfos = (List<WeatherService.CityInfo>) msg.obj;
-                    initListViews(cityInfos);
-                    break;
-                default:
-                    break;
-            }
-        }
-    };
     private Button mFinishEditButton;
     private final List<CityWithInfo> cityWithInfoList = new ArrayList<>();
-    private ChoosedCityAdapter choosedCityAdapter;
+    private ChoosedCityAdapter mChosenCityAdapter;
 
     BroadcastReceiver broadcastReceiver = new BroadcastReceiver() {
         @Override
@@ -116,7 +135,6 @@ public class ManageCityActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_manage_city);
         Log.i("ManagerCityActivity","onCreate");
-        initViews();
         //bind Service
         bindService(new Intent(ManageCityActivity.this,WeatherService.class),mServiceConnection,BIND_AUTO_CREATE);
 
@@ -148,7 +166,7 @@ public class ManageCityActivity extends AppCompatActivity {
         unbindService(mServiceConnection);
         unregisterReceiver(broadcastReceiver);
         super.onDestroy();
-        Log.i(this.getClass().getSimpleName(),"onDestroy");
+        Log.i(TAG,"onDestroy");
     }
 
     private  void initViews() {
@@ -160,27 +178,28 @@ public class ManageCityActivity extends AppCompatActivity {
             @Override
             public void onClick(View v) {
                 startActivity(new Intent(ManageCityActivity.this,ChooseCityActivity.class));
+                finish(); //end this activity
             }
         });
 
         mFinishEditButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-
                 for (CityWithInfo cityWithInfo: cityWithInfoList
                         ) {
                     cityWithInfo.setImageId(-1);
                 }
 
-                choosedCityAdapter.notifyDataSetChanged();
+                mChosenCityAdapter.notifyDataSetChanged();
                 mFinishEditButton.setVisibility(View.INVISIBLE);
+                mChooseCityButton.setEnabled(true);
             }
         });
 
-        choosedCityAdapter = new ChoosedCityAdapter(ManageCityActivity.this,
+        mChosenCityAdapter = new ChoosedCityAdapter(ManageCityActivity.this,
                 R.layout.parent_list_view_item,
                 cityWithInfoList);
-        mChoosedCities.setAdapter(choosedCityAdapter);
+        mChoosedCities.setAdapter(mChosenCityAdapter);
 
         getChoosedCitiesFromDatabase();
 
@@ -188,24 +207,25 @@ public class ManageCityActivity extends AppCompatActivity {
     }
 
     private  void initListViews(List<WeatherService.CityInfo> cities) {
-        choosedCityAdapter.clear();
+        mChosenCityAdapter.clear();
         for (WeatherService.CityInfo city: cities
              ) {
             cityWithInfoList.add(new CityWithInfo(city,-1));
         }
-        choosedCityAdapter.notifyDataSetChanged();
+        mChosenCityAdapter.notifyDataSetChanged();
         //long press to show delete signature and manipulate the database
 
         mChoosedCities.setOnItemLongClickListener(new AdapterView.OnItemLongClickListener() {
             @Override
             public boolean onItemLongClick(AdapterView<?> parent, View view, int position, long id) {
+                mChooseCityButton.setEnabled(false);
                 mFinishEditButton.setVisibility(View.VISIBLE);
                 for (CityWithInfo cityWithInfo: cityWithInfoList
                      ) {
                     cityWithInfo.setImageId(R.drawable.error);
                 }
 
-                choosedCityAdapter.notifyDataSetChanged();
+                mChosenCityAdapter.notifyDataSetChanged();
 
                 return false;
             }
@@ -214,25 +234,15 @@ public class ManageCityActivity extends AppCompatActivity {
     }
 
     private void getChoosedCitiesFromDatabase() {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                List<WeatherService.CityInfo> cityInfos;
-
-                Looper.prepare();
-                Message msg = new Message();
-                CityListOperations cityListOperations = new CityListOperations(ManageCityActivity.this);
-                //SQLiteDatabase cityListDatabase = cityListOperations.getWritableDatabase(); //database is locked, need wait()
-                cityInfos = cityListOperations.getChoosedCities();
-
-                msg.what = 1;
-                msg.obj = cityInfos;
-
-                mHandler.sendMessage(msg);
-
-                Looper.loop();
-            }
-        }).start();
+        //send message to Service to do this;
+        Message msg = new Message();
+        msg.what = MainActivity.GET_CHOOSED_CITY_FROM_DB;
+        msg.getData().putInt("Identify_ID",1); //msg from ManagerCityActivity
+        try {
+            mServiceMessenger.send(msg);
+        } catch (RemoteException e) {
+            e.printStackTrace();
+        }
     }
 }
 
@@ -240,11 +250,15 @@ public class ManageCityActivity extends AppCompatActivity {
 
 class ChoosedCityAdapter extends ArrayAdapter<CityWithInfo> {
     int resourceId;
+    ManageCityActivity context;
     List<CityWithInfo> cityWithInfoList;
+
+
     public ChoosedCityAdapter(Context context, int resource, List<CityWithInfo> objects) {
         super(context, resource, objects);
         resourceId=resource;
         cityWithInfoList=objects;
+        this.context = (ManageCityActivity) context;
     }
 
     @Override
@@ -264,14 +278,9 @@ class ChoosedCityAdapter extends ArrayAdapter<CityWithInfo> {
                     //Toast.makeText(getContext(),"you click the png",Toast.LENGTH_SHORT).show();
                     if(cityWithInfoList.get(position).getImageId()!=-1) {
                         String cityId = new String(cityWithInfoList.get(position).getName().getId());
-                        cityWithInfoList.remove(position);
-                        //delete the data in the database
-                        ChoosedCityAdapter.this.notifyDataSetChanged();
                         //database operation
                         deleteChoosedCitiesFromDatabase(cityId);
-                        //
-                        MainActivity.datachanged=true;
-
+                        ManageCityActivity.mClickingPostion = position;
                     }
                 }
             });
@@ -297,30 +306,16 @@ class ChoosedCityAdapter extends ArrayAdapter<CityWithInfo> {
         ImageView arrowImage;
     }
 
-    public void deleteChoosedCitiesFromDatabase(final String cityId) {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-
-                Looper.prepare();
-                CityListOperations cityListOperations = new CityListOperations(getContext());
-                //SQLiteDatabase cityListDatabase = cityListOperations.getWritableDatabase();
-                while(cityListOperations.syncdelete(cityId)==0) {
-                    Log.i("ManagCityActivity", "delete error!");
-                    try {
-                        Thread.sleep(200);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
-                }
-//                Message msg = new Message();
-//                msg.what = 1;
-//                msg.obj = cityInfos;
-//                mHandler.sendMessage(msg);
-
-                Looper.loop();
-            }
-        }).start();
+    public void deleteChoosedCitiesFromDatabase(String cityId) {
+        //send message to Service to do this;
+        Message msg = new Message();
+        msg.what = MainActivity.DELETE_CHOSEN_CITY_FROM_DB;
+        msg.getData().putString("CityId",cityId);
+        try {
+            context.mServiceMessenger.send(msg);
+        } catch (RemoteException e) {
+            e.printStackTrace();
+        }
     }
 }
 

@@ -3,6 +3,7 @@ package geekband.yanjinyi1987.com.homework_part2_3;
 import geekband.yanjinyi1987.com.homework_part2_3.service.HeXunWeatherInfo;
 import geekband.yanjinyi1987.com.homework_part2_3.service.WeatherService;
 
+import android.app.ActivityManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -57,6 +58,9 @@ public class MainActivity extends AppCompatActivity {
     public static final int GET_GLOBAL_CITY_LIST_FROM_WEB=3;
     public static final int GET_CHOOSED_CITY_WEATHER_FROM_WEB=4;
     public static final int GET_CHOOSED_CITY_FROM_DB=5;
+    public static final int GET_GLOBAL_CITY_LIST_FROM_DB=6;
+    public static final int WRITE_CHOSEN_CITY_TO_DB = 7;
+    public static final int DELETE_CHOSEN_CITY_FROM_DB=8;
 
 
     //Broadcast List
@@ -74,19 +78,21 @@ public class MainActivity extends AppCompatActivity {
             switch(msg.what) {
                 //>>>>>>>>>>>>>>
                 case GLOBAL_FAULT:
+                    Log.i(TAG,"GLOBAL_FAULT");
                     break;
                 case GOT_GLOBAL_CITY_LIST:
+                    Log.i(TAG,"GOT_GLOBAL_CITY_LIST");
                     mChooseCity.setEnabled(true);
                     mRefreshWeather.setEnabled(true);
                     break;
                 case GET_CHOOSED_CITY_FROM_DB_FAILED:
                     Log.i(TAG,"GET_CHOOSED_CITY_FROM_DB_FAILED");
-                    mChooseCity.setEnabled(false);
+                    mChooseCity.setEnabled(true);
                     mRefreshWeather.setEnabled(true); //refresh to try again
                     break;
-                case INIT_VIEWPAGER: //init ViewPager
+                case GET_CHOOSED_CITY_FROM_DB_SUCCED: //init ViewPager
                     Log.i("MainActivity","INIT_VIEWPAGER");
-                    choosedCityInfos = (ArrayList<WeatherService.CityInfo>) msg.obj;
+                    choosedCityInfos = (ArrayList<WeatherService.CityInfo>) msg.getData().getSerializable("CHOSED_CITY_LIST");
                     for (View view: viewList
                             ) {
                         view.setVisibility(View.INVISIBLE);
@@ -100,8 +106,7 @@ public class MainActivity extends AppCompatActivity {
                         initViewPager(cityName,cityId,viewList);
                         Log.i(TAG,"choosedCityList "+city.getCity());
                     }
-
-                    myPagerAdapter.notifyDataSetChanged();
+                    myPagerAdapter.notifyDataSetChanged(); //call instantiateItem
                     if(whichToShowFirst==-1) {
                         whichToShowFirst=0;
                         viewPager.setCurrentItem(viewList.size() - 1);
@@ -112,16 +117,20 @@ public class MainActivity extends AppCompatActivity {
                     }
                     break;
                 case GET_CHOOSED_CITY_WEATHER_FROM_WEB_SUCCED:
-                    List<WeatherService.SimpleWeatherInfo> simpleWeatherInfo = (List<WeatherService.SimpleWeatherInfo>) msg.obj;
+                    Log.i(TAG,"GET_CHOOSED_CITY_WEATHER_FROM_WEB_SUCCED");
+                    List<WeatherService.SimpleWeatherInfo> simpleWeatherInfo =
+                            (List<WeatherService.SimpleWeatherInfo>) (msg.getData().getSerializable("WeatherInfo"));
                     int i=0;
                     Log.i("viewList size",String.valueOf(viewList.size()));
-                    while(simpleWeatherInfo.size()!=viewList.size()) {
-                        setDatatoSharedPreferences(false, GLOBAL_SETTINGS, IS_CITY_WEATHER_CACHED);
-                        getChoosedCityWeather(choosedCityInfos);
-                    }
+//                    while(simpleWeatherInfo.size()!=viewList.size()) {
+//                        setDatatoSharedPreferences(false, GLOBAL_SETTINGS, IS_CITY_WEATHER_CACHED);
+//                        getChoosedCityWeather(choosedCityInfos);
+//                    }
                     if(simpleWeatherInfo!=null && simpleWeatherInfo.size()!=0) {
                         for (View view : viewList
                                 ) {
+                            Log.i("viewList size",simpleWeatherInfo.get(i).cityName);
+                            Log.i("viewList size",""+view.getVisibility()); //0 visible
                             ((TextView) view.findViewById(R.id.weather_type)).setText(simpleWeatherInfo.get(i).weatherType);
                             ((TextView) view.findViewById(R.id.temperature)).setText(simpleWeatherInfo.get(i).temperature+"°C");
                             i++;
@@ -134,6 +143,7 @@ public class MainActivity extends AppCompatActivity {
                     mRefreshWeather.setEnabled(true); //refresh to try again
                     break;
                 case -1:
+                    Log.i(TAG,"NETWORK_ERROR");
                     Toast.makeText(MainActivity.this,"网络错误",Toast.LENGTH_SHORT).show();
                     break;
                 //<<<<<<<<<<<<<<
@@ -165,6 +175,8 @@ public class MainActivity extends AppCompatActivity {
                 e.printStackTrace();
             }
             onBound = true;
+
+            initViews();
         }
 
         @Override
@@ -184,19 +196,31 @@ public class MainActivity extends AppCompatActivity {
     private Button mRefreshWeather;
 
     @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+    }
+/*
+ * 还是没有解决多次打开主界面后，最后在主界面一次性退出
+adb shell dumpsys activity
+
+自动刷新未解决
+ */
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         Log.i("MainActivity","onCreate");
         //start the service
-        startService(new Intent(MainActivity.this,WeatherService.class));
+        if(!isServiceRunning(MainActivity.this,"WeatherService")) {
+            startService(new Intent(MainActivity.this, WeatherService.class));
+        }
         //bind the service
         bindService(new Intent(MainActivity.this,WeatherService.class),mServiceConnection,BIND_AUTO_CREATE);
         String cityId = getIntent().getStringExtra("Position");
         if(cityId!=null) {
             whichToShowFirst=-1;
         }
-        initViews();
+        //initViews();
     }
 
     public void setDatatoSharedPreferences(boolean data,String filename,String key) {
@@ -218,8 +242,6 @@ public class MainActivity extends AppCompatActivity {
 
         myPagerAdapter = new MyPagerAdapter(MainActivity.this,viewList);
         viewPager.setAdapter(myPagerAdapter);
-
-        getChoosedCity();
 
         mChooseCity.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -249,10 +271,12 @@ public class MainActivity extends AppCompatActivity {
         SharedPreferences sharedPreferences = getSharedPreferences(GLOBAL_SETTINGS,MODE_PRIVATE);
         Boolean isCityListInDatabase = sharedPreferences.getBoolean(IS_CITY_LIST_IN_DATABASE,false);
         if(!isCityListInDatabase) {
+            Log.i(TAG,"Get city list from web");
             getCityListandSave(); //save data in handler
             mChooseCity.setEnabled(false);
             mRefreshWeather.setEnabled(false);
         }
+        getChoosedCity();
     }
 
     private void getChoosedCityWeather(List<WeatherService.CityInfo> choosedCityIds) {
@@ -270,6 +294,8 @@ public class MainActivity extends AppCompatActivity {
         //send message to Service to do this;
         Message msg = new Message();
         msg.what = GET_CHOOSED_CITY_FROM_DB;
+        //msg.obj=0;
+        msg.getData().putInt("Identify_ID",0);
         try {
             mServiceMessenger.send(msg);
         } catch (RemoteException e) {
@@ -282,7 +308,6 @@ public class MainActivity extends AppCompatActivity {
         ((TextView)view.findViewById(R.id.city_name)).setText(cityName);
         //((TextView)view.findViewById(R.id.weather_type)).setText(cityId);
         viewList.add(view);
-
     }
     private void updateViewPager(List<View> viewList) {
 
@@ -333,15 +358,46 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        Log.i("MainActivity","onTrimMemory");
+
+    }
+
+    @Override
     protected void onDestroy() {
         super.onDestroy();
         Log.i("MainActivity","onDestroy "+this.getTaskId());
         //unbindService
         unbindService(mServiceConnection);
         Log.i("MainActivity","Send Exit App");
-        Intent exitAppIntent = new Intent();
-        exitAppIntent.setAction(EXIT_APP);
-        sendBroadcast(exitAppIntent); //或许是有thread没有被关闭额！！！ 重构啦
+        //Intent exitAppIntent = new Intent();
+        //exitAppIntent.setAction(EXIT_APP);
+        //sendBroadcast(exitAppIntent); //或许是有thread没有被关闭额！！！ 重构啦
+    }
+
+    /*
+ * 判断服务是否启动,context上下文对象 ，className服务的name
+ */
+    public static boolean isServiceRunning(Context mContext, String className) {
+
+        boolean isRunning = false;
+        ActivityManager activityManager = (ActivityManager) mContext
+                .getSystemService(Context.ACTIVITY_SERVICE);
+        List<ActivityManager.RunningServiceInfo> serviceList = activityManager
+                .getRunningServices(30);
+
+        if (!(serviceList.size() > 0)) {
+            return false;
+        }
+
+        for (int i = 0; i < serviceList.size(); i++) {
+            if (serviceList.get(i).service.getClassName().equals(className) == true) {
+                isRunning = true;
+                break;
+            }
+        }
+        return isRunning;
     }
 }
 
@@ -352,6 +408,14 @@ class MyPagerAdapter extends PagerAdapter {
     public MyPagerAdapter(Context context,List<View> objects) {
         mContext = context;
         mListView = objects;
+    }
+/*
+This way, when you call notifyDataSetChanged(),
+the view pager will remove all views and reload them all. As so the reload effect is obtained.
+ */
+    @Override
+    public int getItemPosition(Object object) {
+        return POSITION_NONE;
     }
 
     @Override
@@ -368,7 +432,9 @@ class MyPagerAdapter extends PagerAdapter {
     public void destroyItem(ViewGroup container, int position, Object object) {
         //super.destroyItem(container, position, object);
         Log.i("Adapter","destroyItem");
+        if(position<mListView.size()) {
             container.removeView(mListView.get(position));
+        }
     }
 
 
@@ -381,6 +447,6 @@ class MyPagerAdapter extends PagerAdapter {
     }
 }
 //class CityList {
-//    public List<CityInfo> city_list;
+//    public List<CityInfo> city_info;
 //}
 

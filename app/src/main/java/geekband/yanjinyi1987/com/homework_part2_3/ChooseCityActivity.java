@@ -42,6 +42,25 @@ public class ChooseCityActivity extends AppCompatActivity {
         @Override
         public void handleMessage(Message msg) {
             switch(msg.what) {
+                case SEND_DATA_TO_MEMORY:
+                    Log.i(TAG,"Got Global City Data from Service");
+                    cityLists = (Map<String, WeatherService.ProvinceList>) msg.getData().getSerializable("GLOBAL_CITY_LIST");
+
+                    if(cityLists==null) {
+                        //add refresh button
+                    }
+                    else {
+                        initListViews(cityLists);
+                    }
+                    break;
+                case WRITE_FINISHED:
+                    Log.i(TAG,"WRITE_FINISHED");
+                    Intent intent = new Intent(ChooseCityActivity.this,MainActivity.class);
+                    intent.putExtra("Position",
+                            ((WeatherService.CityInfo)(msg.getData().getSerializable("CurrentCity"))).getId());
+                    startActivityForResult(intent,0); //uiying OnCreate
+                    finish();
+                    break;
                 default:
                     super.handleMessage(msg);
                     break;
@@ -62,7 +81,7 @@ public class ChooseCityActivity extends AppCompatActivity {
             mServiceMessenger = new Messenger(service);
             Log.i(TAG,"Send Messenger to Service directly");
             Message msg = new Message();
-            msg.what = SEND_MESSENGER_TO_SERVICE_ChooseCityActivity;
+            msg.what = MainActivity.SEND_MESSENGER_TO_SERVICE_ChooseCityActivity;
             msg.obj = mMessenger;
             try {
                 mServiceMessenger.send(msg);
@@ -70,6 +89,7 @@ public class ChooseCityActivity extends AppCompatActivity {
                 e.printStackTrace();
             }
             onBound = true;
+            initViews();
         }
 
         @Override
@@ -87,29 +107,6 @@ public class ChooseCityActivity extends AppCompatActivity {
         bindService(new Intent(ChooseCityActivity.this,WeatherService.class),
                 mServiceConnection,
                 BIND_AUTO_CREATE);
-
-        mHandler = new Handler(){
-            @Override
-            public void handleMessage(Message msg) {
-                switch (msg.what) {
-                    case SEND_DATA_TO_MEMORY:
-                        cityLists = (Map<String, WeatherService.ProvinceList>) msg.obj;
-                        initListViews(cityLists);
-                        break;
-                    case WRITE_FINISHED:
-                        Log.i("ChoosedCityActivity","start MainActivity");
-                        Intent intent = new Intent(ChooseCityActivity.this,MainActivity.class);
-                        intent.putExtra("Position",((WeatherService.CityInfo)msg.obj).getId());
-                        startActivityForResult(intent,0); //uiying OnCreate
-                        finish();
-                        break;
-                    default:
-                        break;
-                }
-            }
-        };
-
-        initViews();
     }
 
 
@@ -117,31 +114,22 @@ public class ChooseCityActivity extends AppCompatActivity {
     protected void onDestroy() {
         unbindService(mServiceConnection);
         Log.i(this.getClass().getSimpleName(),"onDestroy");
-        Log.i(this.getClass().getSimpleName(),"Send Exit App");
+        //Log.i(this.getClass().getSimpleName(),"Send Exit App");
         Intent exitAppIntent = new Intent();
         exitAppIntent.setAction("MainActivity.ExitApp");
-        sendBroadcast(exitAppIntent);
+        //sendBroadcast(exitAppIntent);
         super.onDestroy();
     }
 
     private void initCityData() {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                Looper.prepare();
-                Message msg = new Message();
-                CityListOperations cityListOperations = new CityListOperations(ChooseCityActivity.this);
-                //SQLiteDatabase cityListDatabase = cityListOperations.getWritableDatabase();
-
-                Map<String,WeatherService.ProvinceList> cityLists = cityListOperations.sendDatatoMemory();
-
-                msg.what = SEND_DATA_TO_MEMORY;
-                msg.obj = cityLists;
-
-                mHandler.sendMessage(msg);
-                Looper.loop();
-            }
-        }).start();
+        //send message to Service to do this;
+        Message msg = new Message();
+        msg.what = MainActivity.GET_GLOBAL_CITY_LIST_FROM_DB;
+        try {
+            mServiceMessenger.send(msg);
+        } catch (RemoteException e) {
+            e.printStackTrace();
+        }
     }
     private void initViews() {
         initCityData();
@@ -183,8 +171,8 @@ public class ChooseCityActivity extends AppCompatActivity {
             @Override
             public boolean onChildClick(ExpandableListView parent, View v, int groupPosition, int childPosition, long id) {
                 //pass data to ManageCityActivity
-                WeatherService.CityInfo choosedCity = cityLists.get(provinceList.get(groupPosition).getName()).getCities().get(childPosition);
-                writeChoosedCitytoDatabase(choosedCity);
+                WeatherService.CityInfo chosenCity = cityLists.get(provinceList.get(groupPosition).getName().getCity()).getCities().get(childPosition);
+                writeChoosedCitytoDatabase(chosenCity);
                 setDatatoSharedPreferences(false,MainActivity.GLOBAL_SETTINGS,MainActivity.IS_CITY_WEATHER_CACHED);
                 return false;
             }
@@ -199,52 +187,20 @@ public class ChooseCityActivity extends AppCompatActivity {
         editor.apply();
     }
 
-    private void writeChoosedCitytoDatabase(final WeatherService.CityInfo city) {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                Looper.prepare();
-                Message msg = new Message();
-                Log.i("ChoosedCityActivity","save data");
-                long result=-1;
-                CityListOperations cityListOperations = new CityListOperations(ChooseCityActivity.this);
-                //SQLiteDatabase cityListDatabase = cityListOperations.getWritableDatabase();
-                while((result=cityListOperations.saveChoosedCity(city))==-1) {
-                    Log.i("ChooseCityActivity","error");
-                    try {
-                        Thread.sleep(200);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
-                }
-                msg.what= WRITE_FINISHED;
-                msg.obj = city;
-                mHandler.sendMessage(msg);
-                Looper.loop();
-            }
-        }).start();
+    private void writeChoosedCitytoDatabase(WeatherService.CityInfo city) {
+        //send message to Service to do this;
+        Message msg = new Message();
+        Bundle bundle = new Bundle();
+        bundle.putSerializable("WeatherService.CityInfo",city);
+        msg.getData().putBundle("Bundle",bundle);
+        msg.what = MainActivity.WRITE_CHOSEN_CITY_TO_DB;
+        try {
+            mServiceMessenger.send(msg);
+        } catch (RemoteException e) {
+            e.printStackTrace();
+        }
     }
 }
-
-
-//class CityWithInfo {
-//    private String name;
-//    private int imageId;
-//
-//    public CityWithInfo(String name, int imageId) {
-//        this.name=name;
-//        this.imageId=imageId;
-//    }
-//
-//    public String getName() {
-//        return name;
-//    }
-//
-//    public int getImageId() {
-//        return imageId;
-//    }
-//}
-
 
 class CityAdapter_Expand extends BaseExpandableListAdapter {
     List<CityWithInfo> groupList;
@@ -270,7 +226,7 @@ class CityAdapter_Expand extends BaseExpandableListAdapter {
     @Override
     public int getChildrenCount(int groupPosition) {
 //        return 0;
-        return childMap.get(groupList.get(groupPosition).getName()).getCities().size();
+        return childMap.get(groupList.get(groupPosition).getName().getCity()).getCities().size();
     }
 
     @Override
@@ -282,7 +238,7 @@ class CityAdapter_Expand extends BaseExpandableListAdapter {
     @Override
     public Object getChild(int groupPosition, int childPosition) {
         //return null;
-        return childMap.get(groupList.get(groupPosition).getName()).getCities();
+        return childMap.get(groupList.get(groupPosition).getName().getCity()).getCities();
     }
 
     @Override
@@ -328,7 +284,7 @@ class CityAdapter_Expand extends BaseExpandableListAdapter {
 
     @Override
     public View getChildView(int groupPosition, int childPosition, boolean isLastChild, View convertView, ViewGroup parent) {
-        String cityName = childMap.get(groupList.get(groupPosition).getName()).getCities().get(childPosition).getCity();
+        String cityName = childMap.get(groupList.get(groupPosition).getName().getCity()).getCities().get(childPosition).getCity();
         View view;
         ChildViewHolder childViewHolder;
         if(convertView==null) {

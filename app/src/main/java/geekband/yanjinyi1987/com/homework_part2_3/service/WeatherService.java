@@ -9,9 +9,9 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteException;
 import android.database.sqlite.SQLiteOpenHelper;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
-import android.os.Looper;
 import android.os.Message;
 import android.os.Messenger;
 import android.os.RemoteException;
@@ -35,7 +35,9 @@ import java.util.Map;
 
 import javax.net.ssl.HttpsURLConnection;
 
+import geekband.yanjinyi1987.com.homework_part2_3.ChooseCityActivity;
 import geekband.yanjinyi1987.com.homework_part2_3.MainActivity;
+import geekband.yanjinyi1987.com.homework_part2_3.ManageCityActivity;
 
 /**
  * Created by lexkde on 16-9-11.
@@ -46,6 +48,16 @@ public class WeatherService extends Service {
     private boolean bindToMainActivity = false;
     private boolean bindToManageCityActivity = false;
     private boolean bindToChooseCityActivity = false;
+
+    private Handler mHttpHandler = new Handler() {
+        @Override
+        public void handleMessage(Message msg) {
+            switch(msg.what) {
+                default:
+                    super.handleMessage(msg);
+            }
+        }
+    };
     class ClientHandler extends  Handler {
         @Override
         public void handleMessage(Message msg) {
@@ -62,9 +74,9 @@ public class WeatherService extends Service {
 
                 case MainActivity.SEND_MESSENGER_TO_SERVICE_ManageCityActivity:
                     Log.i(TAG,"Got ManageCityActivity's messenger");
-                    mClientMessenger_ManagerCityActivity = (Messenger) msg.obj;
+                    mClientMessenger_ManageCityActivity = (Messenger) msg.obj;
                     bindToManageCityActivity= true;
-                    if(mClientMessenger_ManagerCityActivity==null) {
+                    if(mClientMessenger_ManageCityActivity ==null) {
                         Log.i(TAG,"Got ManageCityActivity's messenger failed");
                         bindToManageCityActivity=false;
                     }
@@ -80,12 +92,16 @@ public class WeatherService extends Service {
                     }
                     break;
                 case MainActivity.GET_GLOBAL_CITY_LIST_FROM_WEB:
+                    Log.i(TAG,"GET_GLOBAL_CITY_LIST_FROM_WEB");
                     Message CITY_LIST_returnToMainactivy_msg = new Message();
                     if(!saveCityListToDatabaseAndGenerateObject()) {
                         CITY_LIST_returnToMainactivy_msg.what = MainActivity.GLOBAL_FAULT;
                     }
                     else {
                         CITY_LIST_returnToMainactivy_msg.what = MainActivity.GOT_GLOBAL_CITY_LIST;
+                        setDatatoSharedPreferences(true,MainActivity.GLOBAL_SETTINGS,
+                                MainActivity.IS_CITY_LIST_IN_DATABASE
+                                );
 
                     }
                     try {
@@ -93,36 +109,108 @@ public class WeatherService extends Service {
                     } catch (RemoteException e) {
                         e.printStackTrace();
                     }
+                    break;
                 case MainActivity.GET_CHOOSED_CITY_WEATHER_FROM_WEB:
-                    Message CITY_WEATHER_returnToMainactivy_msg = new Message();
-                    if(getChoosedCityWeather(chosedCities)) {
-                        CITY_WEATHER_returnToMainactivy_msg.what=
+                    Log.i(TAG,"GET_CHOOSED_CITY_WEATHER_FROM_WEB");
+                    Message CITY_WEATHER_returnToMainActivity_msg = new Message();
+                    List<SimpleWeatherInfo> simpleWeatherInfoList = new ArrayList<>();
+                    if(!getChoosedCityWeather(chosedCities,simpleWeatherInfoList)) {
+                        CITY_WEATHER_returnToMainActivity_msg.what=
                                 MainActivity.GET_CHOOSED_CITY_WEATHER_FROM_WEB_FAILED;
                     }
                     else {
-                        CITY_WEATHER_returnToMainactivy_msg.what=
+                        CITY_WEATHER_returnToMainActivity_msg.what=
                                 MainActivity.GET_CHOOSED_CITY_WEATHER_FROM_WEB_SUCCED;
+                        CITY_WEATHER_returnToMainActivity_msg.getData().putSerializable("WeatherInfo",
+                                (Serializable) simpleWeatherInfoList);
                     }
 
                     try {
-                        mClientMessenger_MainActivity.send(CITY_WEATHER_returnToMainactivy_msg);
+                        mClientMessenger_MainActivity.send(CITY_WEATHER_returnToMainActivity_msg);
                     } catch (RemoteException e) {
                         e.printStackTrace();
                     }
                     break;
                 case MainActivity.GET_CHOOSED_CITY_FROM_DB:
+                    Log.i(TAG,"GET_CHOOSED_CITY_FROM_DB");
                     chosedCities=getChoosedCityFromDB();
-                    Message CHOSED_CITY_returnToMainactivy_msg = new Message();
-                    if(chosedCities!=null & chosedCities.size()>0) {
-                        CHOSED_CITY_returnToMainactivy_msg.what =
-                                MainActivity.GET_CHOOSED_CITY_FROM_DB_FAILED;
+                    int fromWhich = msg.getData().getInt("Identify_ID");
+                    Message CHOSED_CITY_returnToMainActivity_msg = new Message();
+                    if(chosedCities!=null) {
+                        CHOSED_CITY_returnToMainActivity_msg.what =
+                                MainActivity.GET_CHOOSED_CITY_FROM_DB_SUCCED;
+                        CHOSED_CITY_returnToMainActivity_msg.getData().putSerializable("CHOSED_CITY_LIST",
+                                (Serializable) chosedCities);
                     }
                     else {
-                        CHOSED_CITY_returnToMainactivy_msg.what =
-                                MainActivity.GET_CHOOSED_CITY_FROM_DB_SUCCED;
+                        CHOSED_CITY_returnToMainActivity_msg.what =
+                                MainActivity.GET_CHOOSED_CITY_FROM_DB_FAILED;
+                    }
+                    if(fromWhich==1) {
+                        try {
+                            mClientMessenger_ManageCityActivity.send(CHOSED_CITY_returnToMainActivity_msg);
+                        } catch (RemoteException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                    else {
+                        try {
+                            mClientMessenger_MainActivity.send(CHOSED_CITY_returnToMainActivity_msg);
+                        } catch (RemoteException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                    break;
+                case MainActivity.GET_GLOBAL_CITY_LIST_FROM_DB:
+                    Log.i(TAG,"GET_GLOBAL_CITY_LIST_FROM_DB");
+                    Message GET_GLOBAL_CITY_LIST_FROM_DB_returnToChooseCityActivity_msg = new Message();
+                    Map<String,WeatherService.ProvinceList> AllChinaCities;
+                    AllChinaCities=initCityData();
+                    Log.i(TAG,"GET_GLOBAL_CITY_LIST_FROM_DB  Processing...");
+                    GET_GLOBAL_CITY_LIST_FROM_DB_returnToChooseCityActivity_msg.what =
+                            ChooseCityActivity.SEND_DATA_TO_MEMORY;
+                    GET_GLOBAL_CITY_LIST_FROM_DB_returnToChooseCityActivity_msg.getData().putSerializable("GLOBAL_CITY_LIST",
+                            (Serializable) AllChinaCities);
+                    try {
+                        mClientMessenger_ChooseCityActivity.send(GET_GLOBAL_CITY_LIST_FROM_DB_returnToChooseCityActivity_msg);
+                    } catch (RemoteException e) {
+                        e.printStackTrace();
+                    }
+                    break;
+                case MainActivity.WRITE_CHOSEN_CITY_TO_DB:
+                    Log.i(TAG,"WRITE_CHOSEN_CITY_TO_DB");
+                    Message WRITE_CHOSEN_CITY_TO_DB_returnToChooseCityActivity_msg = new Message();
+                    WRITE_CHOSEN_CITY_TO_DB_returnToChooseCityActivity_msg.what =
+                            ChooseCityActivity.WRITE_FINISHED;
+                    Bundle bundle = new Bundle();
+                    bundle = msg.getData().getBundle("Bundle");
+                    CityInfo city = (CityInfo) bundle.getSerializable("WeatherService.CityInfo");
+                    WRITE_CHOSEN_CITY_TO_DB_returnToChooseCityActivity_msg.getData().putSerializable("CurrentCity",
+                            city);
+                    if(writeChoosedCitytoDatabase(city)) {
+                        try {
+                            mClientMessenger_ChooseCityActivity.send(WRITE_CHOSEN_CITY_TO_DB_returnToChooseCityActivity_msg);
+                        } catch (RemoteException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                    break;
+                case MainActivity.DELETE_CHOSEN_CITY_FROM_DB:
+                    Log.i(TAG,"DELETE_CHOSEN_CITY_FROM_DB");
+                    Message DELETE_CHOSEN_CITY_FROM_DB_returnToManageCityActivity_msg = new Message();
+
+                    String cityId =msg.getData().getString("CityId");
+                    Log.i(TAG,cityId);
+                    if(deleteChoosedCitiesFromDatabase(cityId)) {
+                        DELETE_CHOSEN_CITY_FROM_DB_returnToManageCityActivity_msg.what =
+                                ManageCityActivity.DELETE_CHOSEN_CITY_FROM_DB_SUCCED;
+                    }
+                    else {
+                        DELETE_CHOSEN_CITY_FROM_DB_returnToManageCityActivity_msg.what =
+                                ManageCityActivity.DELETE_CHOSEN_CITY_FROM_DB_FAILED;
                     }
                     try {
-                        mClientMessenger_MainActivity.send(CHOSED_CITY_returnToMainactivy_msg);
+                        mClientMessenger_ManageCityActivity.send(DELETE_CHOSEN_CITY_FROM_DB_returnToManageCityActivity_msg);
                     } catch (RemoteException e) {
                         e.printStackTrace();
                     }
@@ -138,7 +226,7 @@ public class WeatherService extends Service {
 
     private Messenger mClientMessenger_MainActivity;
     private Messenger mClientMessenger_ChooseCityActivity;
-    private Messenger mClientMessenger_ManagerCityActivity;
+    private Messenger mClientMessenger_ManageCityActivity;
     Messenger mMessenger = new Messenger(new ClientHandler());
 
 
@@ -183,10 +271,9 @@ public class WeatherService extends Service {
 //                    ...       ...
 
     public static class CityList {
-        public List<CityInfo> city_list;
+        public List<CityInfo> city_info;
     }
-
-    public static class ProvinceList {
+    public static class ProvinceList implements Serializable{
         private String provinceName;
         private List<CityInfo> cities;
 
@@ -286,7 +373,7 @@ public class WeatherService extends Service {
         }
     }
 
-    public static class SimpleWeatherInfo {
+    public static class SimpleWeatherInfo implements Serializable{
         public String cityName;
         public String cityId;
         public String weatherType;
@@ -303,34 +390,46 @@ public class WeatherService extends Service {
     //no need to update UI
     private boolean saveCityListToDatabaseAndGenerateObject() {
         boolean result = false;
-        Message msg;
-        WeatherHttp weatherHttp = new WeatherHttp();
-        msg=weatherHttp.requestWithoutThread(WeatherHttp.GET_CITY_LIST,"allchina");
 
-        if(msg.what==WeatherHttp.GET_CITY_LIST) {
+        final WeatherHttp weatherHttp = new WeatherHttp(mHttpHandler);
+        Thread threadHttp = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                weatherHttp.requestWithoutThread(WeatherHttp.GET_CITY_LIST,"allchina");
+            }
+        });
+        threadHttp.start();
+        try {
+            threadHttp.join();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        Message msg = WeatherHttp.mHttpResultMsg;
+        Log.i(TAG, "We got "+(String) msg.obj);
+        Log.i(TAG,"We got "+String.valueOf(msg.what));
+        if (msg.what == WeatherHttp.GET_CITY_LIST) {
             Gson gson = new Gson();
             WeatherService.CityList cityList = gson.fromJson((String) msg.obj, WeatherService.CityList.class);
 
-            List<WeatherService.CityInfo> cityInfos = cityList.city_list;
+            List<WeatherService.CityInfo> cityInfos = cityList.city_info;
 
             CityListOperations cityListOperations = new CityListOperations(WeatherService.this);
 
             try {
-                if(cityListOperations.saveData(cityInfos)) {
+                if (cityListOperations.saveData(cityInfos)) {
                     //set SharedPreference isCityListInDatabase = true
+                    Log.i(TAG,"Write SharedPreferences IS_CITY_LIST_IN_DATABASE");
                     setDatatoSharedPreferences(true,
                             MainActivity.GLOBAL_SETTINGS,
                             MainActivity.IS_CITY_LIST_IN_DATABASE);
-                    result=true;
-                }
-                else {
+                    result = true;
+                } else {
                     result = false;
                 }
             } catch (Exception e) {
-                result=false;
+                result = false;
                 e.printStackTrace();
-            }
-            finally {
+            } finally {
                 return result;
             }
         }
@@ -356,7 +455,8 @@ public class WeatherService extends Service {
     }
 
 
-    private boolean getChoosedCityWeather(List<WeatherService.CityInfo> chosenCityInfos) {
+    private boolean getChoosedCityWeather(List<WeatherService.CityInfo> chosenCityInfos,
+                                          List<SimpleWeatherInfo> simpleWeatherInfoList) {
         boolean getAllWeathers=true;
         SharedPreferences sharedPreferences = getSharedPreferences(MainActivity.GLOBAL_SETTINGS, MODE_PRIVATE);
         Boolean isCityWeatherCached = sharedPreferences.getBoolean(MainActivity.IS_CITY_WEATHER_CACHED, false);
@@ -365,14 +465,26 @@ public class WeatherService extends Service {
         CityListOperations cityListOperations = new CityListOperations(WeatherService.this);
         //SQLiteDatabase cityListDatabase = cityListOperations.getWritableDatabase(); //database is locked, need wait()
 
-        List<SimpleWeatherInfo> simpleWeatherInfoList = new ArrayList<>();
+        //List<SimpleWeatherInfo> simpleWeatherInfoList = new ArrayList<>();
         Message msg_return = new Message();
         if (!isCityWeatherCached) {
             ArrayList<String> weatherJsons = new ArrayList<>();
-            for (WeatherService.CityInfo city : chosenCityInfos
+            for (final WeatherService.CityInfo city : chosenCityInfos
                     ) {
-                WeatherHttp weatherHttp = new WeatherHttp();
-                Message msg = weatherHttp.requestWithoutThread(WeatherHttp.GET_CITY_WEATHER, city.getId());
+                final WeatherHttp weatherHttp = new WeatherHttp(mHttpHandler);
+                Thread threadHttp = new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        weatherHttp.requestWithoutThread(WeatherHttp.GET_CITY_WEATHER, city.getId());
+                    }
+                });
+                try {
+                    threadHttp.start();
+                    threadHttp.join();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                Message msg = WeatherHttp.mHttpResultMsg;
                 if (msg.what != WeatherHttp.NETWORK_ERROR) {
                     heXunWeatherInfo = gson.fromJson((String) msg.obj, HeXunWeatherInfo.class);
                     if (heXunWeatherInfo.heWeatherDS0300.get(0).status.equals("ok")) { //check status here
@@ -384,13 +496,12 @@ public class WeatherService extends Service {
                                 heXunWeatherInfo.heWeatherDS0300.get(0).now.cond.txt,
                                 String.valueOf(heXunWeatherInfo.heWeatherDS0300.get(0).now.tmp)
                         ));
-                    }
-                    else {
-                        getAllWeathers=false;
+                    } else {
+                        getAllWeathers = false;
                         break;
                     }
                 } else {
-                    getAllWeathers=false;
+                    getAllWeathers = false;
                     Log.i("MainActivity", "Error json");
                     break;
                 }
@@ -398,10 +509,12 @@ public class WeatherService extends Service {
             if(getAllWeathers==true) {
                 Log.i("getChoosedWeather",String.valueOf(weatherJsons.size()));
                 Log.i("getChoosedWeather ","choosedCityInfos"+String.valueOf(chosenCityInfos.size()));
-                cityListOperations.cacheWeathers(weatherJsons);
-                setDatatoSharedPreferences(true,
-                        MainActivity.GLOBAL_SETTINGS,
-                        MainActivity.IS_CITY_WEATHER_CACHED);
+
+                if(cityListOperations.cacheWeathers(weatherJsons)>0) {
+                    setDatatoSharedPreferences(true,
+                            MainActivity.GLOBAL_SETTINGS,
+                            MainActivity.IS_CITY_WEATHER_CACHED);
+                }
             }
         }
         else {
@@ -411,12 +524,18 @@ public class WeatherService extends Service {
                 for (String weatherJson:weatherJsons
                         ) {
                     heXunWeatherInfo = gson.fromJson(weatherJson, HeXunWeatherInfo.class);
-                    simpleWeatherInfoList.add(new SimpleWeatherInfo(
-                            heXunWeatherInfo.heWeatherDS0300.get(0).basic.city,
-                            heXunWeatherInfo.heWeatherDS0300.get(0).basic.id,
-                            heXunWeatherInfo.heWeatherDS0300.get(0).now.cond.txt,
-                            String.valueOf(heXunWeatherInfo.heWeatherDS0300.get(0).now.tmp)
-                    ));
+                    if(heXunWeatherInfo!=null) {
+                        simpleWeatherInfoList.add(new SimpleWeatherInfo(
+                                heXunWeatherInfo.heWeatherDS0300.get(0).basic.city,
+                                heXunWeatherInfo.heWeatherDS0300.get(0).basic.id,
+                                heXunWeatherInfo.heWeatherDS0300.get(0).now.cond.txt,
+                                String.valueOf(heXunWeatherInfo.heWeatherDS0300.get(0).now.tmp)
+                        ));
+                    }
+                    else {
+                        //
+                        Log.i(TAG,"DB not contain the weather info");
+                    }
                 }
             }
             else {
@@ -433,6 +552,44 @@ public class WeatherService extends Service {
         //SQLiteDatabase cityListDatabase = cityListOperations.getWritableDatabase(); //database is locked, need wait()
         cityInfos = cityListOperations.getChoosedCities();
         return cityInfos;
+    }
+
+    private Map<String,WeatherService.ProvinceList> initCityData() {
+
+        //Message msg = new Message();
+        CityListOperations cityListOperations = new CityListOperations(WeatherService.this);
+        //SQLiteDatabase cityListDatabase = cityListOperations.getWritableDatabase();
+
+        Map<String,WeatherService.ProvinceList> cityLists = cityListOperations.sendDatatoMemory();
+        return cityLists;
+    }
+
+    private boolean writeChoosedCitytoDatabase(final WeatherService.CityInfo city) {
+        Message msg = new Message();
+        Log.i("ChoosedCityActivity","save data");
+        long result=-1;
+        CityListOperations cityListOperations = new CityListOperations(WeatherService.this);
+        //SQLiteDatabase cityListDatabase = cityListOperations.getWritableDatabase();
+        result=cityListOperations.saveChoosedCity(city);
+        if(result==-1) {
+            return false;
+        }
+        else {
+            return true;
+        }
+    }
+
+    public boolean deleteChoosedCitiesFromDatabase(final String cityId) {
+        long result=0;
+        CityListOperations cityListOperations = new CityListOperations(WeatherService.this);
+        //SQLiteDatabase cityListDatabase = cityListOperations.getWritableDatabase();
+        result = cityListOperations.syncdelete(cityId);
+        if(result<=0) {
+            return false;
+        }
+        else {
+            return true;
+        }
     }
 }
 
@@ -474,7 +631,7 @@ class DBHelper extends SQLiteOpenHelper {
                     CityListOperations.SECTION_LATITUDE + " varchar(20) not null, " +
                     CityListOperations.SECTION_LONGITUDE + " varchar(20) not null, " +
                     CityListOperations.SECTION_PROVINCE + " varchar(20) not null, "+
-                    CityListOperations.SECTION_WEATHER_JSON + " text" +
+                    CityListOperations.SECTION_WEATHER_JSON + " text null" +
                     ")"
             );
         }catch (SQLiteException e) {
@@ -545,6 +702,7 @@ class CityListOperations {
     }
 
     public boolean saveData(List<WeatherService.CityInfo> cityLists) {
+        Log.i(this.getClass().getSimpleName(),"save global city list into DB");
         synchronized (helper) {
             boolean result = false;
             if (!db.isOpen()) {
@@ -587,6 +745,7 @@ class CityListOperations {
     }
 
     public Map<String, WeatherService.ProvinceList> sendDatatoMemory() {
+        Log.i(this.getClass().getSimpleName(),"read global city list from db");
         Map<String, WeatherService.ProvinceList> provinceLists = new HashMap<>(); //define a Map
         synchronized (helper) {
             if (!db.isOpen()) {
@@ -653,9 +812,9 @@ class CityListOperations {
                 } else {
                     Toast.makeText(mContext, "您还没有选择城市!", Toast.LENGTH_SHORT).show();
                 }
-                Log.i("getChoosedCities size", String.valueOf(cities.size()));
             } catch (Exception e) {
                 e.printStackTrace();
+                cities = null;
             } finally {
                 cursor.close();
                 db.close();
@@ -734,7 +893,10 @@ class CityListOperations {
                     if (!cursor.moveToFirst()) {
                         ContentValues contentValues = new ContentValues();
                         contentValues.put(SECTION_WEATHER_JSON, weatherJson);
-                        insertResult = db.insert(TABLE_CHOSEN_CITY_LIST, null, contentValues);
+                        insertResult = db.update(TABLE_CHOSEN_CITY_LIST,
+                                contentValues,
+                                SECTION_CITY_ID + "=" + "\"" + cityId + "\"",
+                                null);
                     }
                     cursor.close();
                 }
@@ -825,11 +987,11 @@ class CityListOperations {
 
 class WeatherHttp{
     public static final String APIKey = "3e9f8bab0ec34c37b49f4cb1652c956d";
-    public static final int GET_CITY_WEATHER=0;
-    public static final int GET_WEATHER_CONDITION=1;
-    public static final int GET_CITY_LIST=2;
+    public static final int GET_CITY_WEATHER=1;
+    public static final int GET_WEATHER_CONDITION=2;
+    public static final int GET_CITY_LIST=3;
     public static final int NETWORK_ERROR = -1;
-
+    public static Message mHttpResultMsg = new Message();
     private Handler mHandler;
     public WeatherHttp() {
         this(null);
@@ -857,15 +1019,82 @@ class WeatherHttp{
     * 2
     * */
 
-    public Message requestWithoutThread(final int requestType, final String addition_data){
-        String urlStr=null;
-        URL url=null;
-        HttpURLConnection httpsURLConnection=null;
-        InputStream jsonIn=null;
-        Message msg = new Message();
-        msg.what=0; //iniital
-        StringBuilder response=null;
-        Log.i("Network","start");
+    public void requestWithThread(final int requestType, final String addition_data){
+        synchronized (mHttpResultMsg) {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    String urlStr = null;
+                    URL url = null;
+                    HttpURLConnection httpsURLConnection = null;
+                    InputStream jsonIn = null;
+                    Message msg = mHttpResultMsg;
+                    msg.what = 0; //iniital
+                    StringBuilder response = null;
+                    Log.i("Network", "start");
+                    switch (requestType) {
+                        case GET_CITY_WEATHER:
+                            urlStr = getWeatherUrl(addition_data);
+                            msg.what = 1;
+                            break;
+                        case GET_WEATHER_CONDITION:
+                            urlStr = getWeatherConditionUrl(addition_data);
+                            Log.i("request", urlStr);
+                            msg.what = 2;
+                            break;
+                        case GET_CITY_LIST:
+                            urlStr = getCityListUrl(addition_data);
+                            msg.what = 3;
+                            break;
+                        default:
+                            break;
+                    }
+
+                    try {
+                        url = new URL(urlStr);
+                        httpsURLConnection = (HttpsURLConnection) url.openConnection();
+                        httpsURLConnection.setRequestMethod("GET");
+                        httpsURLConnection.setConnectTimeout(8000);
+                        httpsURLConnection.setReadTimeout(8000);
+                        jsonIn = httpsURLConnection.getInputStream();
+                        BufferedReader reader = new BufferedReader(new InputStreamReader(jsonIn));
+                        response = new StringBuilder();
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            response.append(line);
+                        }
+                    /*return json data*/
+                    } catch (Exception e) {
+                        Log.i("WeatherHttp", "IOException in getInputStream");
+                        msg.what = NETWORK_ERROR; //error
+                        e.printStackTrace();
+                    } finally {
+                        if (httpsURLConnection != null) {
+                            httpsURLConnection.disconnect();
+                        }
+                    }
+
+                    if (msg.what != NETWORK_ERROR) {
+                        //msg.what = 0; //success
+                        msg.obj = response.toString();
+                        Log.i("request", (String) msg.obj);
+                    }
+                    //mHttpResultMsg = msg;
+                }
+
+            }).start();
+        }
+    }
+
+    public void requestWithoutThread(final int requestType, final String addition_data){
+        String urlStr = null;
+        URL url = null;
+        HttpURLConnection httpsURLConnection = null;
+        InputStream jsonIn = null;
+        Message msg = mHttpResultMsg;
+        msg.what = 0; //iniital
+        StringBuilder response = null;
+        Log.i("Network", "start");
         switch (requestType) {
             case GET_CITY_WEATHER:
                 urlStr = getWeatherUrl(addition_data);
@@ -873,7 +1102,7 @@ class WeatherHttp{
                 break;
             case GET_WEATHER_CONDITION:
                 urlStr = getWeatherConditionUrl(addition_data);
-                Log.i("request",urlStr);
+                Log.i("request", urlStr);
                 msg.what = 2;
                 break;
             case GET_CITY_LIST:
@@ -894,25 +1123,25 @@ class WeatherHttp{
             BufferedReader reader = new BufferedReader(new InputStreamReader(jsonIn));
             response = new StringBuilder();
             String line;
-            while((line = reader.readLine())!=null) {
+            while ((line = reader.readLine()) != null) {
                 response.append(line);
             }
                     /*return json data*/
         } catch (Exception e) {
-            Log.i("WeatherHttp","IOException in getInputStream");
+            Log.i("WeatherHttp", "IOException in getInputStream");
             msg.what = NETWORK_ERROR; //error
             e.printStackTrace();
-        }finally {
-            if(httpsURLConnection!=null) {
+        } finally {
+            if (httpsURLConnection != null) {
                 httpsURLConnection.disconnect();
             }
         }
 
-        if(msg.what!= NETWORK_ERROR) {
+        if (msg.what != NETWORK_ERROR) {
             //msg.what = 0; //success
             msg.obj = response.toString();
-            Log.i("request",(String)msg.obj);
+            Log.i("request", (String) msg.obj);
         }
-        return msg;
+        //mHttpResultMsg = msg;
     }
 }

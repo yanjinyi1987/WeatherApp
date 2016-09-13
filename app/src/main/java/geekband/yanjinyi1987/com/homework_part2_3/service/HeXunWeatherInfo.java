@@ -23,14 +23,14 @@ public class HeXunWeatherInfo {
         public static class Aqi {
             public City city;
             public static class City{
-                public int aqi;
-                public int co;
-                public int no2;
-                public int o3;
-                public int pm10;
-                public int pm25;
+                public String aqi;
+                public String co;
+                public String no2;
+                public String o3;
+                public String pm10;
+                public String pm25;
                 public String qlty;
-                public int so2;
+                public String so2;
             }
         }
 
