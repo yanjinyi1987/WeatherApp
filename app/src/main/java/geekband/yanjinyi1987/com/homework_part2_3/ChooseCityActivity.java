@@ -13,6 +13,7 @@ import android.os.Messenger;
 import android.os.RemoteException;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.text.TextUtils;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -25,6 +26,7 @@ import android.widget.TextView;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -39,15 +41,17 @@ public class ChooseCityActivity extends AppCompatActivity {
 
     Handler mHandler;
     Map<String,WeatherService.ProvinceList> cityLists;
-
+    int chooseCityInfos_size=0;
+    List<WeatherService.CityInfo> AllChinaCities = new ArrayList<>();
     class ServiceHandler extends  Handler {
         @Override
         public void handleMessage(Message msg) {
             switch(msg.what) {
                 case SEND_DATA_TO_MEMORY: //init ViewPager
+                    Log.i(TAG,"SEND_DATA_TO_MEMORY");
                     chooseCityInfos_size = msg.getData().getInt("DATA_SIZE");
                     Message request_start_transfer_msg = new Message();
-                    request_start_transfer_msg.what = REQUEST_START_TRANSFER;
+                    request_start_transfer_msg.what = MainActivity.REQUEST_START_TRANSFER;
                     try {
                         mServiceMessenger.send(request_start_transfer_msg);
                     } catch (RemoteException e) {
@@ -55,23 +59,24 @@ public class ChooseCityActivity extends AppCompatActivity {
                     }
                     break;
                 case SEND_DATA_PACKAGE:
+                    Log.i(TAG,"SEND_DATA_PACKAGE");
                     List<WeatherService.CityInfo> dataPackage = (List<WeatherService.CityInfo>) msg.getData().getSerializable("DATA_PACKAGE");
-                    Message request__transfer_msg = new Message();
+                    Message request_transfer_msg = new Message();
                     if(dataPackage!=null) {
-                        choosedCityInfos.addAll(dataPackage);
+                        AllChinaCities.addAll(dataPackage);
 
-                        if(choosedCityInfos.size()==chooseCityInfos_size) {
-                            request__transfer_msg.what = MainActivity.TRANSFER_DONE;
+                        if(AllChinaCities.size()==chooseCityInfos_size) {
+                            request_transfer_msg.what = MainActivity.TRANSFER_DONE;
                         }
                         else {
-                            request__transfer_msg.what = MainActivity.REQUEST_START_TRANSFER;
+                            request_transfer_msg.what = MainActivity.REQUEST_START_TRANSFER;
                         }
                     }
                     else {
-                        request__transfer_msg.what = MainActivity.RE_TRANSFER;
+                        request_transfer_msg.what = MainActivity.RE_TRANSFER;
                     }
                     try {
-                        mServiceMessenger.send(request__transfer_msg);
+                        mServiceMessenger.send(request_transfer_msg);
                     } catch (RemoteException e) {
                         e.printStackTrace();
                     }
@@ -79,9 +84,10 @@ public class ChooseCityActivity extends AppCompatActivity {
                 case GET_GLOBAL_CITY_FROM_DB_DONE:
                     Log.i(TAG,"Got Global City Data from Service");
                     //cityLists = (Map<String, WeatherService.ProvinceList>) msg.getData().getSerializable("GLOBAL_CITY_LIST");
-
+                    cityLists = turnListtoProvinceMap(AllChinaCities);
                     if(cityLists==null) {
                         //add refresh button
+                        Log.i(TAG,"GET_GLOBAL_CITY_FROM_DB_DONE: "+"cityList is null");
                     }
                     else {
                         initListViews(cityLists);
@@ -221,6 +227,40 @@ public class ChooseCityActivity extends AppCompatActivity {
         editor.apply();
     }
 
+    private boolean isZXS(String cityName) {
+        if (TextUtils.equals("北京", cityName) ||
+                TextUtils.equals("上海", cityName) ||
+                TextUtils.equals("天津", cityName) ||
+                TextUtils.equals("重庆", cityName) ||
+                TextUtils.equals("香港", cityName) ||
+                TextUtils.equals("澳门", cityName)) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    public Map<String, WeatherService.ProvinceList> turnListtoProvinceMap(
+            List<WeatherService.CityInfo> citiesInfo) {
+        Map<String, WeatherService.ProvinceList> provinceLists = new HashMap<>(); //define a Map
+        String currentZXS = null;
+        for(WeatherService.CityInfo cityInfo:citiesInfo) {
+            if (isZXS(cityInfo.getCity())) {
+                currentZXS = cityInfo.getCity();
+                provinceLists.put(currentZXS, new WeatherService.ProvinceList(currentZXS));
+            }
+
+            if (TextUtils.equals("直辖市", cityInfo.getProv()) || TextUtils.equals("特别行政区", cityInfo.getProv())) {
+                provinceLists.get(currentZXS).getCities().add(cityInfo);
+            } else {
+                if (provinceLists.get(cityInfo.getProv()) == null) {
+                    provinceLists.put(cityInfo.getProv(), new WeatherService.ProvinceList(cityInfo.getProv()));
+                }
+                provinceLists.get(cityInfo.getProv()).getCities().add(cityInfo);
+            }
+        }
+        return provinceLists;
+    }
     private void writeChoosedCitytoDatabase(WeatherService.CityInfo city) {
         //send message to Service to do this;
         Message msg = new Message();

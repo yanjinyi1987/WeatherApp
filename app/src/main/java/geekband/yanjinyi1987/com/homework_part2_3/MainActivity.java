@@ -143,6 +143,7 @@ public class MainActivity extends AppCompatActivity {
                             i++;
                         }
                     }
+                    mChooseCity.setEnabled(true);
                     break;
                 case GET_CHOOSED_CITY_WEATHER_FROM_WEB_FAILED:
                     Log.i(TAG,"GET_CHOOSED_CITY_WEATHER_FROM_WEB_FAILED");
