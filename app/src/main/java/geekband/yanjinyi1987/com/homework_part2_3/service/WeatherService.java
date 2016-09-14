@@ -61,6 +61,7 @@ public class WeatherService extends Service {
     class ClientHandler extends  Handler {
         @Override
         public void handleMessage(Message msg) {
+            int startIndex=0,data_length=0,endIndex=0;
             switch(msg.what) {
                 case MainActivity.SEND_MESSENGER_TO_SERVICE_MainActivity:
                     Log.i(TAG,"Got MainActivity's messenger");
@@ -94,7 +95,11 @@ public class WeatherService extends Service {
                 case MainActivity.GET_GLOBAL_CITY_LIST_FROM_WEB:
                     Log.i(TAG,"GET_GLOBAL_CITY_LIST_FROM_WEB");
                     Message CITY_LIST_returnToMainactivy_msg = new Message();
-                    if(!saveCityListToDatabaseAndGenerateObject()) {
+                    SharedPreferences sharedPreferences = getSharedPreferences(MainActivity.GLOBAL_SETTINGS
+                            ,MODE_PRIVATE);
+                    Boolean isCityListInDatabase = sharedPreferences.getBoolean(MainActivity.IS_CITY_LIST_IN_DATABASE
+                            ,false);
+                    if(!saveCityListToDatabaseAndGenerateObject() && isCityListInDatabase==false) {
                         CITY_LIST_returnToMainactivy_msg.what = MainActivity.GLOBAL_FAULT;
                     }
                     else {
@@ -133,7 +138,7 @@ public class WeatherService extends Service {
                     break;
                 case MainActivity.GET_CHOOSED_CITY_FROM_DB:
                     Log.i(TAG,"GET_CHOOSED_CITY_FROM_DB");
-                    chosedCities=getChoosedCityFromDB();
+                    chosedCities= (ArrayList<CityInfo>) getChoosedCityFromDB();
                     int fromWhich = msg.getData().getInt("Identify_ID");
                     Message CHOSED_CITY_returnToMainActivity_msg = new Message();
                     if(chosedCities!=null) {
@@ -161,7 +166,44 @@ public class WeatherService extends Service {
                         }
                     }
                     break;
+                case MainActivity.RE_TRANSFER:
+                    startIndex = endIndex - data_length;
+                case MainActivity.REQUEST_START_TRANSFER:
+
+                    Message cityInfos_data_package = new Message();
+
+                    cityInfos_data_package.what =
+                            ChooseCityActivity.SEND_DATA_PACKAGE;
+                    if(data_length==0) {
+                        endIndex = chosedCities.size();
+                    }
+                    else {
+                        endIndex = startIndex+data_length;
+                        if(endIndex>chosedCities.size()) {
+                            endIndex = chosedCities.size();
+                        }
+                    }
+                    cityInfos_data_package.getData().putSerializable("DATA_PACKAGE",
+                            (Serializable) (new ArrayList<>(chosedCities.subList(startIndex,endIndex))));
+                    try {
+                        mClientMessenger_ChooseCityActivity.send(cityInfos_data_package);
+                    } catch (RemoteException e) {
+                        e.printStackTrace();
+                    }
+                    startIndex = endIndex;
+                    break;
+                case MainActivity.TRANSFER_DONE:
+                    Message CHOSED_CITY_returnToMainActivity_Done_msg = new Message();
+                    CHOSED_CITY_returnToMainActivity_Done_msg.what =
+                            ChooseCityActivity.GET_GLOBAL_CITY_FROM_DB_DONE;
+                    try {
+                        mClientMessenger_ChooseCityActivity.send(CHOSED_CITY_returnToMainActivity_Done_msg);
+                    } catch (RemoteException e) {
+                        e.printStackTrace();
+                    }
+                    break;
                 case MainActivity.GET_GLOBAL_CITY_LIST_FROM_DB:
+                    ////data is too large, split it to small pieces and send
                     Log.i(TAG,"GET_GLOBAL_CITY_LIST_FROM_DB");
                     Message GET_GLOBAL_CITY_LIST_FROM_DB_returnToChooseCityActivity_msg = new Message();
                     Map<String,WeatherService.ProvinceList> AllChinaCities;
@@ -169,6 +211,10 @@ public class WeatherService extends Service {
                     Log.i(TAG,"GET_GLOBAL_CITY_LIST_FROM_DB  Processing...");
                     GET_GLOBAL_CITY_LIST_FROM_DB_returnToChooseCityActivity_msg.what =
                             ChooseCityActivity.SEND_DATA_TO_MEMORY;
+
+                    //send data size first
+                    GET_GLOBAL_CITY_LIST_FROM_DB_returnToChooseCityActivity_msg.getData().putInt("DATA_SIZE",AllChinaCities.size());
+                    data_length = AllChinaCities.size()/5;
                     GET_GLOBAL_CITY_LIST_FROM_DB_returnToChooseCityActivity_msg.getData().putSerializable("GLOBAL_CITY_LIST",
                             (Serializable) AllChinaCities);
                     try {
@@ -222,7 +268,7 @@ public class WeatherService extends Service {
         }
     }
 
-    List<WeatherService.CityInfo> chosedCities;
+    ArrayList<WeatherService.CityInfo> chosedCities;
 
     private Messenger mClientMessenger_MainActivity;
     private Messenger mClientMessenger_ChooseCityActivity;
@@ -710,6 +756,7 @@ class CityListOperations {
             }
             db.beginTransaction();
             try {
+                db.execSQL("DELETE FROM "+TABLE_HE_XUN_CITY_LIST);
                 if(insert_to_table_cityLists(db, TABLE_HE_XUN_CITY_LIST, cityLists)) {
                     db.setTransactionSuccessful();
                     result=true;

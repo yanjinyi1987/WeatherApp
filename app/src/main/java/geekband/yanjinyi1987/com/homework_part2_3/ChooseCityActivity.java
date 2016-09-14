@@ -32,8 +32,10 @@ import geekband.yanjinyi1987.com.homework_part2_3.service.WeatherService;
 
 public class ChooseCityActivity extends AppCompatActivity {
     public static final String TAG = "ChooseCityActivity";
-    public static final int WRITE_FINISHED = 2;
     public static final int SEND_DATA_TO_MEMORY = 1;
+    public static final int WRITE_FINISHED = 2;
+    public static final int GET_GLOBAL_CITY_FROM_DB_DONE = 3;
+    public static final int SEND_DATA_PACKAGE = 4;
 
     Handler mHandler;
     Map<String,WeatherService.ProvinceList> cityLists;
@@ -42,9 +44,41 @@ public class ChooseCityActivity extends AppCompatActivity {
         @Override
         public void handleMessage(Message msg) {
             switch(msg.what) {
-                case SEND_DATA_TO_MEMORY:
+                case SEND_DATA_TO_MEMORY: //init ViewPager
+                    chooseCityInfos_size = msg.getData().getInt("DATA_SIZE");
+                    Message request_start_transfer_msg = new Message();
+                    request_start_transfer_msg.what = REQUEST_START_TRANSFER;
+                    try {
+                        mServiceMessenger.send(request_start_transfer_msg);
+                    } catch (RemoteException e) {
+                        e.printStackTrace();
+                    }
+                    break;
+                case SEND_DATA_PACKAGE:
+                    List<WeatherService.CityInfo> dataPackage = (List<WeatherService.CityInfo>) msg.getData().getSerializable("DATA_PACKAGE");
+                    Message request__transfer_msg = new Message();
+                    if(dataPackage!=null) {
+                        choosedCityInfos.addAll(dataPackage);
+
+                        if(choosedCityInfos.size()==chooseCityInfos_size) {
+                            request__transfer_msg.what = MainActivity.TRANSFER_DONE;
+                        }
+                        else {
+                            request__transfer_msg.what = MainActivity.REQUEST_START_TRANSFER;
+                        }
+                    }
+                    else {
+                        request__transfer_msg.what = MainActivity.RE_TRANSFER;
+                    }
+                    try {
+                        mServiceMessenger.send(request__transfer_msg);
+                    } catch (RemoteException e) {
+                        e.printStackTrace();
+                    }
+                    break;
+                case GET_GLOBAL_CITY_FROM_DB_DONE:
                     Log.i(TAG,"Got Global City Data from Service");
-                    cityLists = (Map<String, WeatherService.ProvinceList>) msg.getData().getSerializable("GLOBAL_CITY_LIST");
+                    //cityLists = (Map<String, WeatherService.ProvinceList>) msg.getData().getSerializable("GLOBAL_CITY_LIST");
 
                     if(cityLists==null) {
                         //add refresh button

@@ -31,6 +31,7 @@ import android.widget.Toast;
 import com.google.gson.Gson;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
@@ -51,6 +52,8 @@ public class MainActivity extends AppCompatActivity {
     public static final int GET_CHOOSED_CITY_FROM_DB_SUCCED=4; //equal to INIT_VIEWPAGER
     public static final int INIT_VIEWPAGER = 4;
 
+
+
     //Message List
     public static final int SEND_MESSENGER_TO_SERVICE_MainActivity=0;
     public static final int SEND_MESSENGER_TO_SERVICE_ManageCityActivity =1;
@@ -61,6 +64,9 @@ public class MainActivity extends AppCompatActivity {
     public static final int GET_GLOBAL_CITY_LIST_FROM_DB=6;
     public static final int WRITE_CHOSEN_CITY_TO_DB = 7;
     public static final int DELETE_CHOSEN_CITY_FROM_DB=8;
+    public static final int REQUEST_START_TRANSFER = 9;
+    public static final int RE_TRANSFER = 0xA;
+    public static final int TRANSFER_DONE = 0xB;
 
 
     //Broadcast List
@@ -69,12 +75,13 @@ public class MainActivity extends AppCompatActivity {
 
     public static final String TAG = "MainActivity";
 
-    private ArrayList<WeatherService.CityInfo> choosedCityInfos;
+    private ArrayList<WeatherService.CityInfo> choosedCityInfos = new ArrayList<>();
     private Map<String,WeatherService.ProvinceList> provinceListMap;
 
     class ServiceHandler extends  Handler {
         @Override
         public void handleMessage(Message msg) {
+            int chooseCityInfos_size=0;
             switch(msg.what) {
                 //>>>>>>>>>>>>>>
                 case GLOBAL_FAULT:
@@ -90,7 +97,7 @@ public class MainActivity extends AppCompatActivity {
                     mChooseCity.setEnabled(true);
                     mRefreshWeather.setEnabled(true); //refresh to try again
                     break;
-                case GET_CHOOSED_CITY_FROM_DB_SUCCED: //init ViewPager
+                case GET_CHOOSED_CITY_FROM_DB_SUCCED:
                     Log.i("MainActivity","INIT_VIEWPAGER");
                     choosedCityInfos = (ArrayList<WeatherService.CityInfo>) msg.getData().getSerializable("CHOSED_CITY_LIST");
                     for (View view: viewList
@@ -215,7 +222,7 @@ adb shell dumpsys activity
             startService(new Intent(MainActivity.this, WeatherService.class));
         }
         //bind the service
-        bindService(new Intent(MainActivity.this,WeatherService.class),mServiceConnection,BIND_AUTO_CREATE);
+        bindService(new Intent(MainActivity.this, WeatherService.class), mServiceConnection, BIND_AUTO_CREATE);
         String cityId = getIntent().getStringExtra("Position");
         if(cityId!=null) {
             whichToShowFirst=-1;
